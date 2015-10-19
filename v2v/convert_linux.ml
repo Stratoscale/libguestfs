@@ -58,6 +58,15 @@ let string_of_kernel_info ki =
     (match ki.ki_initrd with None -> "None" | Some f -> f)
     ki.ki_supports_virtio ki.ki_is_xen_kernel ki.ki_is_debug
 
+let rec other_convert ~keep_serial_console (g : G.guestfs) inspect source =
+    {
+      gcaps_block_bus = Virtio_blk;
+      gcaps_net_bus = Virtio_net;
+      gcaps_video = QXL;
+      gcaps_arch = Utils.kvm_arch inspect.i_arch;
+      gcaps_acpi = true;
+    }
+
 (* The conversion function. *)
 let rec convert ~keep_serial_console (g : G.guestfs) inspect source =
   (*----------------------------------------------------------------------*)
@@ -1418,6 +1427,11 @@ let rec convert ~keep_serial_console (g : G.guestfs) inspect source =
   guestcaps
 
 let () =
+  let other_matching = function
+    | { i_type = "linux" } -> true
+    | _ -> false
+  in
+  Modules_list.register_convert_module other_matching "other-linux" other_convert;
   let matching = function
     | { i_type = "linux";
         i_distro = ("fedora"
