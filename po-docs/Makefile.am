@@ -41,7 +41,9 @@ CLEANFILES = po4a.conf
 # language directory contains a Makefile.am that we need to keep up to
 # date (note each $lang/Makefile.am should be identical).
 # XXX Is there a better way?
-SUBDIRS = $(linguas)
+# The current directory is traversed first, to make sure that .pot and .pod
+# files are up-to-date and generated before applying translations in subdirs.
+SUBDIRS = . $(linguas)
 
 update-po: libguestfs-docs.pot
 
@@ -88,3 +90,5 @@ podfiles: Makefile
 	for f in `cat $(top_srcdir)/po/POTFILES-pl`; do echo $(top_srcdir)/$$f; done >> $@-t
 	LC_ALL=C sort -o $@-t $@-t
 	mv $@-t $@
+
+all-local: update-po
