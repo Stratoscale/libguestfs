@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -222,44 +222,48 @@ let create_libvirt_xml ?pool source target_buses guestcaps
   (* Same as old virt-v2v, we always add a display here even if it was
    * missing from the old metadata.
    *)
-  let video, graphics =
-    let video, graphics =
+  let video =
+    let video_model =
       match guestcaps.gcaps_video with
-      | QXL ->
-        e "video" [ "type", "qxl"; "ram", "65536" ] [],
-        e "graphics" [ "type", "vnc" ] []
-      | Cirrus ->
-        e "video" [ "type", "cirrus"; "vram", "9216" ] [],
-        e "graphics" [ "type", "spice" ] [] in
+      | QXL ->    e "model" [ "type", "qxl"; "ram", "65536" ] []
+      | Cirrus -> e "model" [ "type", "cirrus"; "vram", "9216" ] [] in
+    append_attr ("heads", "1") video_model;
+    e "video" [] [ video_model ] in
 
-    append_attr ("heads", "1") video;
+  let graphics =
+    match source.s_display with
+    | None -> e "graphics" [ "type", "vnc" ] []
+    | Some { s_display_type = Window } ->
+       e "graphics" [ "type", "sdl" ] []
+    | Some { s_display_type = VNC } ->
+       e "graphics" [ "type", "vnc" ] []
+    | Some { s_display_type = Spice } ->
+       e "graphics" [ "type", "spice" ] [] in
 
-    (match source.s_display with
-    | Some { s_keymap = Some km } -> append_attr ("keymap", km) graphics
-    | _ -> ());
-    (match source.s_display with
-    | Some { s_password = Some pw } -> append_attr ("passwd", pw) graphics
-    | _ -> ());
-    (match source.s_display with
-    | Some { s_listen = listen } ->
+  (match source.s_display with
+   | Some { s_keymap = Some km } -> append_attr ("keymap", km) graphics
+   | _ -> ());
+  (match source.s_display with
+   | Some { s_password = Some pw } -> append_attr ("passwd", pw) graphics
+   | _ -> ());
+  (match source.s_display with
+   | Some { s_listen = listen } ->
       (match listen with
-      | LAddress a ->
-        let sub = e "listen" [ "type", "address"; "address", a ] [] in
-        append_child sub graphics
-      | LNetwork n ->
-        let sub = e "listen" [ "type", "network"; "network", n ] [] in
-        append_child sub graphics
-      | LNone -> ())
-    | _ -> ());
-    (match source.s_display with
-    | Some { s_port = Some p } ->
+       | LAddress a ->
+          let sub = e "listen" [ "type", "address"; "address", a ] [] in
+          append_child sub graphics
+       | LNetwork n ->
+          let sub = e "listen" [ "type", "network"; "network", n ] [] in
+          append_child sub graphics
+       | LNone -> ())
+   | _ -> ());
+  (match source.s_display with
+   | Some { s_port = Some p } ->
       append_attr ("autoport", "no") graphics;
       append_attr ("port", string_of_int p) graphics
-    | _ ->
+   | _ ->
       append_attr ("autoport", "yes") graphics;
       append_attr ("port", "-1") graphics);
-
-    video, graphics in
 
   let sound =
     match source.s_sound with
@@ -405,6 +409,12 @@ class output_libvirt oc output_pool = object
     let tmpfile, chan = Filename.open_temp_file "v2vlibvirt" ".xml" in
     DOM.doc_to_chan chan doc;
     close_out chan;
+
+    if verbose () then (
+      printf "resulting XML for libvirt:\n%!";
+      DOM.doc_to_chan stdout doc;
+      printf "\n%!";
+    );
 
     (* Define the domain in libvirt. *)
     let cmd =

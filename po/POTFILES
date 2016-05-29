@@ -25,6 +25,7 @@ daemon/blockdev.c
 daemon/btrfs.c
 daemon/cap.c
 daemon/checksum.c
+daemon/cleanups.c
 daemon/cmp.c
 daemon/command.c
 daemon/compress.c
@@ -49,6 +50,8 @@ daemon/file.c
 daemon/fill.c
 daemon/find.c
 daemon/findfs.c
+daemon/format.c
+daemon/fs-min-size.c
 daemon/fsck.c
 daemon/fstrim.c
 daemon/glob.c
@@ -94,6 +97,7 @@ daemon/rsync.c
 daemon/scrub.c
 daemon/selinux.c
 daemon/sfdisk.c
+daemon/sh.c
 daemon/sleep.c
 daemon/stat.c
 daemon/statvfs.c
@@ -277,8 +281,9 @@ p2v/main.c
 p2v/miniexpect.c
 p2v/ssh.c
 p2v/utils.c
-perl/Guestfs.c
+p2v/whole-file.c
 perl/bindtests.pl
+perl/lib/Sys/Guestfs.c
 perl/lib/Sys/Guestfs.pm
 php/extension/guestfs_php.c
 python/guestfs-py-byhand.c
@@ -299,6 +304,7 @@ src/actions-support.c
 src/actions-variants.c
 src/alloc.c
 src/appliance.c
+src/available.c
 src/bindtests.c
 src/canonical-name.c
 src/cleanup.c
@@ -346,6 +352,7 @@ src/structs-cleanup.c
 src/structs-compare.c
 src/structs-copy.c
 src/structs-free.c
+src/structs-print.c
 src/test-utils.c
 src/tmpdirs.c
 src/utils.c

@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,8 +39,8 @@ external _exit : int -> unit = "v2v_exit" "noalloc"
 let with_fork { uid = uid; gid = gid } f =
   let pid = fork () in
   if pid = 0 then ( (* child *)
-    (match gid with None -> () | Some gid -> setgid gid);
-    (match uid with None -> () | Some uid -> setuid uid);
+    may setgid gid;
+    may setuid uid;
     (try f ()
      with exn ->
        eprintf "%s: KVM uid wrapper: %s\n%!" prog (Printexc.to_string exn);

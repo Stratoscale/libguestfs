@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,8 +31,6 @@ open Printf
 open Types
 open Utils
 open DOM
-
-let title = sprintf "Exported by virt-v2v %s" Config.package_version
 
 (* We set the creation time to be the same for all dates in
  * all metadata files.  All dates in OVF are UTC.
@@ -179,15 +177,34 @@ and get_ostype = function
       i_arch = "x86_64" } ->
     "windows_2012x64"
 
+   (* Treat Windows 8.1 client like Windows 8.  See:
+    * https://bugzilla.redhat.com/show_bug.cgi?id=1309580#c4
+    *)
+  | { i_type = "windows"; i_major_version = 6; i_minor_version = 3;
+      i_arch = "i386"; i_product_variant = "Client" } ->
+    "windows_8"
+
+  | { i_type = "windows"; i_major_version = 6; i_minor_version = 3;
+      i_arch = "x86_64"; i_product_variant = "Client" } ->
+    "windows_8x64"
+
   | { i_type = "windows"; i_major_version = 6; i_minor_version = 3;
       i_arch = "x86_64" } ->
     "windows_2012R2x64"
 
+  | { i_type = "windows"; i_major_version = 10; i_minor_version = 0;
+      i_arch = "i386" } ->
+    "windows_10"
+
+  | { i_type = "windows"; i_major_version = 10; i_minor_version = 0;
+      i_arch = "x86_64" } ->
+    "windows_10x64"
+
   | { i_type = typ; i_distro = distro;
-      i_major_version = major; i_minor_version = minor;
+      i_major_version = major; i_minor_version = minor; i_arch = arch;
       i_product_name = product } ->
-    warning (f_"unknown guest operating system: %s %s %d.%d (%s)")
-      typ distro major minor product;
+    warning (f_"unknown guest operating system: %s %s %d.%d %s (%s)")
+      typ distro major minor arch product;
     "Unassigned"
 
 (* Generate the .meta file associated with each volume. *)
@@ -228,7 +245,7 @@ let create_meta_files output_alloc sd_uuid image_uuids targets =
       bpf "SIZE=%Ld\n" size_in_sectors;
       bpf "FORMAT=%s\n" format_for_rhev;
       bpf "TYPE=%s\n" output_alloc_for_rhev;
-      bpf "DESCRIPTION=%s\n" title;
+      bpf "DESCRIPTION=%s\n" (String.replace generated_by "=" "_");
       bpf "EOF\n";
       Buffer.contents buf
   ) (List.combine targets image_uuids)
@@ -273,7 +290,7 @@ let rec create_ovf source targets guestcaps inspect
         e "Name" [] [PCData source.s_name];
         e "TemplateId" [] [PCData "00000000-0000-0000-0000-000000000000"];
         e "TemplateName" [] [PCData "Blank"];
-        e "Description" [] [PCData title];
+        e "Description" [] [PCData generated_by];
         e "Domain" [] [];
         e "CreationDate" [] [PCData iso_time];
         e "IsInitilized" (* sic *) [] [PCData "True"];
@@ -420,7 +437,7 @@ and add_disks targets guestcaps output_alloc sd_uuid image_uuids vol_uuids ovf =
           "ovf:href", fileref;
           "ovf:id", vol_uuid;
           "ovf:size", Int64.to_string ov.ov_virtual_size; (* NB: in bytes *)
-          "ovf:description", title;
+          "ovf:description", generated_by;
         ] [] in
       append_child disk references;
 

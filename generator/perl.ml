@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,8 @@ open Actions
 open Structs
 open C
 open Events
+
+let generate_header = generate_header ~inputs:["generator/perl.ml"]
 
 (* Generate Perl xs code, a sort of crazy variation of C with macros. *)
 let rec generate_perl_xs () =
@@ -365,7 +367,8 @@ PREINIT:
                * to add 1 to the ST(x) operator.
                *)
               pr "      char *%s = SvOK(ST(%d)) ? SvPV_nolen(ST(%d)) : NULL;\n" n (i+1) (i+1)
-          | StringList n | DeviceList n -> pr "      char **%s;\n" n
+          | StringList n | DeviceList n | FilenameList n ->
+              pr "      char **%s;\n" n
           | Bool n -> pr "      int %s;\n" n
           | Int n -> pr "      int %s;\n" n
           | Int64 n -> pr "      int64_t %s;\n" n
@@ -510,7 +513,8 @@ PREINIT:
         | OptString _ | Bool _ | Int _ | Int64 _
         | FileIn _ | FileOut _
         | BufferIn _ | Key _ | Pointer _ | GUID _ -> ()
-        | StringList n | DeviceList n -> pr "      free (%s);\n" n
+        | StringList n | DeviceList n | FilenameList n ->
+            pr "      free (%s);\n" n
       ) args;
 
       (* Check return value for errors and return it if necessary. *)
@@ -888,6 +892,12 @@ errnos:
       pr "%s\n\n" longdesc;
       if f.protocol_limit_warning then
         pr "%s\n\n" protocol_limit_warning;
+      (match f.optional with
+      | None -> ()
+      | Some opt ->
+        pr "This function depends on the feature C<%s>.  See also
+C<$g-E<gt>feature-available>.\n\n" opt
+      );
       (match deprecation_notice f with
       | None -> ()
       | Some txt -> pr "%s\n\n" txt
@@ -955,6 +965,7 @@ errnos:
         | Int n -> pr "[ '%s', 'int', %d ]" n i
         | Int64 n -> pr "[ '%s', 'int64', %d ]" n i
         | Pointer (t, n) -> pr "[ '%s', 'pointer(%s)', %d ]" n t i
+        | FilenameList n -> pr "[ '%s', 'string(path) list', %d ]" n i
       in
       pr "    args => [\n";
       iteri (fun i arg ->
@@ -1113,7 +1124,7 @@ and generate_perl_prototype name (ret, args, optargs) =
       | OptString n | Bool n | Int n | Int64 n | FileIn n | FileOut n
       | BufferIn n | Key n | Pointer (_, n) | GUID n ->
           pr "$%s" n
-      | StringList n | DeviceList n ->
+      | StringList n | DeviceList n | FilenameList n ->
           pr "\\@%s" n
   ) args;
   List.iter (

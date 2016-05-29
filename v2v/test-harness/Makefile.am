@@ -1,5 +1,5 @@
 # libguestfs virt-v2v test harness
-# Copyright (C) 2009-2015 Red Hat Inc.
+# Copyright (C) 2009-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,7 +24,16 @@ EXTRA_DIST = \
 	$(SOURCES_MLI) $(SOURCES_ML) \
 	virt-v2v-test-harness.pod
 
-CLEANFILES = *~ *.annot *.cmi *.cmo *.cmx *.cmxa *.o
+CLEANFILES = \
+	*~ \
+	*.a \
+	*.annot \
+	*.cmi \
+	*.cmo \
+	*.cmx \
+	*.cmxa \
+	*.o \
+	*.so
 
 SOURCES_MLI = \
 	v2v_test_harness.mli
@@ -49,7 +58,7 @@ OCAMLPACKAGES = \
 OCAMLFLAGS = $(OCAML_FLAGS) $(OCAML_WARN_ERROR)
 
 BOBJECTS = \
-	$(top_builddir)/mllib/config.cmo \
+	$(top_builddir)/mllib/guestfs_config.cmo \
 	$(top_builddir)/mllib/common_gettext.cmo \
 	$(top_builddir)/mllib/common_utils.cmo \
 	$(top_builddir)/v2v/xml.cmo \
@@ -100,7 +109,9 @@ endif
 
 v2v_test_harness.cmi: $(top_builddir)/ocaml/guestfs.cmi
 
-# Do the installation by hand, because we want to run ocamlfind.
+# Run ocamlfind to perform the install.  ocamlfind refuses to install
+# the package if it is already installed, so remove the old package
+# first.
 data_hook_files = META *.so *.a *.cmi $(srcdir)/*.mli
 if !HAVE_OCAMLOPT
 data_hook_files += *.cmo *.cma
@@ -111,6 +122,8 @@ endif
 install-data-hook:
 	mkdir -p $(DESTDIR)$(OCAMLLIB)
 	mkdir -p $(DESTDIR)$(OCAMLLIB)/stublibs
+	rm -rf $(DESTDIR)$(OCAMLLIB)/v2v_test_harness
+	rm -rf $(DESTDIR)$(OCAMLLIB)/stublibs/dllv2v_test_harness.so*
 	$(OCAMLFIND) install \
 	  -ldconf ignore -destdir $(DESTDIR)$(OCAMLLIB) \
 	  v2v_test_harness \
@@ -121,19 +134,22 @@ install-data-hook:
 
 man_MANS = virt-v2v-test-harness.1
 
-noinst_DATA += $(top_builddir)/html/virt-v2v-test-harness.1.html
+noinst_DATA += $(top_builddir)/website/virt-v2v-test-harness.1.html
 
-virt-v2v-test-harness.1 $(top_builddir)/html/virt-v2v-test-harness.1.html: stamp-virt-v2v-test-harness.pod
+virt-v2v-test-harness.1 $(top_builddir)/website/virt-v2v-test-harness.1.html: stamp-virt-v2v-test-harness.pod
 
 stamp-virt-v2v-test-harness.pod: virt-v2v-test-harness.pod
 	$(PODWRAPPER) \
 	  --man virt-v2v-test-harness.1 \
-	  --html $(top_builddir)/html/virt-v2v-test-harness.1.html \
+	  --html $(top_builddir)/website/virt-v2v-test-harness.1.html \
 	  --license LGPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 
-CLEANFILES += stamp-virt-v2v-test-harness.pod
+CLEANFILES += \
+	stamp-virt-v2v-test-harness.pod \
+	virt-v2v-test-harness.1
 
 # Dependencies.
 depend: .depend

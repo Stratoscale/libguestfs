@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -23,15 +23,17 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <grp.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <assert.h>
 #include <string.h>
 #include <libintl.h>
+#include <sys/un.h>  /* sockaddr_un */
 
 #ifdef HAVE_LIBVIRT
-#include <libvirt/libvirt.h>
 #include <libvirt/virterror.h>
 #endif
 
@@ -50,9 +52,6 @@
 #include "guestfs_protocol.h"
 
 /* Fixes for Mac OS X */
-#if defined __APPLE__ && defined __MACH__
-#include <sys/un.h>
-#endif
 #ifndef SOCK_CLOEXEC
 # define SOCK_CLOEXEC O_CLOEXEC
 #endif
@@ -2017,6 +2016,8 @@ ignore_errors (void *ignore, virErrorPtr ignore2)
   /* empty */
 }
 
+static int destroy_domain (guestfs_h *g, virDomainPtr dom, int check_for_errors);
+
 static int
 shutdown_libvirt (guestfs_h *g, void *datav, int check_for_errors)
 {
@@ -2025,23 +2026,14 @@ shutdown_libvirt (guestfs_h *g, void *datav, int check_for_errors)
   virDomainPtr dom = data->dom;
   size_t i;
   int ret = 0;
-  int flags;
 
   /* Note that we can be called back very early in launch (specifically
    * from launch_libvirt itself), when conn and dom might be NULL.
    */
-
   if (dom != NULL) {
-    flags = check_for_errors ? VIR_DOMAIN_DESTROY_GRACEFUL : 0;
-    debug (g, "calling virDomainDestroy \"%s\" flags=%s",
-           data->name, check_for_errors ? "VIR_DOMAIN_DESTROY_GRACEFUL" : "0");
-    if (virDomainDestroyFlags (dom, flags) == -1) {
-      libvirt_error (g, _("could not destroy libvirt domain"));
-      ret = -1;
-    }
+    ret = destroy_domain (g, dom, check_for_errors);
     virDomainFree (dom);
   }
-
   if (conn != NULL)
     virConnectClose (conn);
 
@@ -2070,6 +2062,36 @@ shutdown_libvirt (guestfs_h *g, void *datav, int check_for_errors)
   return ret;
 }
 
+/* Wrapper around virDomainDestroy which handles errors and retries.. */
+static int
+destroy_domain (guestfs_h *g, virDomainPtr dom, int check_for_errors)
+{
+  const int flags = check_for_errors ? VIR_DOMAIN_DESTROY_GRACEFUL : 0;
+  virErrorPtr err;
+
+ again:
+  debug (g, "calling virDomainDestroy flags=%s",
+         check_for_errors ? "VIR_DOMAIN_DESTROY_GRACEFUL" : "0");
+  if (virDomainDestroyFlags (dom, flags) == 0)
+    return 0;
+
+  /* Error returned by virDomainDestroyFlags ... */
+  err = virGetLastError ();
+
+  /* Retry (indefinitely) if we're just waiting for qemu to shut down.  See:
+   * https://www.redhat.com/archives/libvir-list/2016-January/msg00767.html
+   */
+  if (err && err->code == VIR_ERR_SYSTEM_ERROR && err->int1 == EBUSY)
+    goto again;
+
+  /* "Domain not found" is not treated as an error. */
+  if (err && err->code == VIR_ERR_NO_DOMAIN)
+    return 0;
+
+  libvirt_error (g, _("could not destroy libvirt domain"));
+  return -1;
+}
+
 /* Wrapper around error() which produces better errors for
  * libvirt functions.
  */
@@ -2093,8 +2115,8 @@ libvirt_error (guestfs_h *g, const char *fs, ...)
   /* In all recent libvirt, this retrieves the thread-local error. */
   err = virGetLastError ();
   if (err)
-    error (g, "%s: %s [code=%d domain=%d]",
-           msg, err->message, err->code, err->domain);
+    error (g, "%s: %s [code=%d int1=%d]",
+           msg, err->message, err->code, err->int1);
   else
     error (g, "%s", msg);
 
@@ -2126,8 +2148,8 @@ libvirt_debug (guestfs_h *g, const char *fs, ...)
   /* In all recent libvirt, this retrieves the thread-local error. */
   err = virGetLastError ();
   if (err)
-    debug (g, "%s: %s [code=%d domain=%d]",
-           msg, err->message, err->code, err->domain);
+    debug (g, "%s: %s [code=%d int1=%d]",
+           msg, err->message, err->code, err->int1);
   else
     debug (g, "%s", msg);
 
@@ -2141,7 +2163,7 @@ selinux_warning (guestfs_h *g, const char *func,
                  const char *selinux_op, const char *data)
 {
   debug (g, "%s: %s failed: %s: %m"
-         " [you can ignore this UNLESS using SELinux + sVirt]",
+         " [you can ignore this message if you are not using SELinux + sVirt]",
          func, selinux_op, data ? data : "(none)");
 }
 #endif

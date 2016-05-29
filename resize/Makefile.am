@@ -1,5 +1,5 @@
 # libguestfs virt-resize 2.0 tools
-# Copyright (C) 2011-2015 Red Hat Inc.
+# Copyright (C) 2011-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -56,7 +56,7 @@ BOBJECTS = \
 	$(top_builddir)/mllib/fsync.cmo \
 	$(top_builddir)/mllib/progress.cmo \
 	$(top_builddir)/mllib/uRI.cmo \
-	$(top_builddir)/mllib/config.cmo \
+	$(top_builddir)/mllib/guestfs_config.cmo \
 	$(top_builddir)/mllib/common_gettext.cmo \
 	$(top_builddir)/mllib/common_utils.cmo \
 	$(SOURCES_ML:.ml=.cmo)
@@ -113,19 +113,22 @@ endif
 
 man_MANS = virt-resize.1
 
-noinst_DATA = $(top_builddir)/html/virt-resize.1.html
+noinst_DATA = $(top_builddir)/website/virt-resize.1.html
 
-virt-resize.1 $(top_builddir)/html/virt-resize.1.html: stamp-virt-resize.pod
+virt-resize.1 $(top_builddir)/website/virt-resize.1.html: stamp-virt-resize.pod
 
 stamp-virt-resize.pod: virt-resize.pod
 	$(PODWRAPPER) \
 	  --man virt-resize.1 \
-	  --html $(top_builddir)/html/virt-resize.1.html \
+	  --html $(top_builddir)/website/virt-resize.1.html \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 
-CLEANFILES += stamp-virt-resize.pod
+CLEANFILES += \
+	stamp-virt-resize.pod \
+	virt-resize.1
 
 # Tests.
 

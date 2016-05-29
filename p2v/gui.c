@@ -1,5 +1,5 @@
 /* virt-p2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -390,7 +390,7 @@ about_button_clicked (GtkWidget *w, gpointer data)
   gtk_show_about_dialog (GTK_WINDOW (conn_dlg),
                          "program-name", guestfs_int_program_name,
                          "version", PACKAGE_VERSION,
-                         "copyright", "\u00A9 2009-2015 Red Hat Inc.",
+                         "copyright", "\u00A9 2009-2016 Red Hat Inc.",
                          "comments", "Convert a physical machine to use KVM",
                          "license", gplv2plus,
                          "website", "http://libguestfs.org/",
@@ -1260,9 +1260,11 @@ get_memory_from_conv_dlg (void)
 static void set_log_dir (const char *remote_dir);
 static void set_status (const char *msg);
 static void add_v2v_output (const char *msg);
+static void add_v2v_output_2 (const char *msg, size_t len);
 static void *start_conversion_thread (void *data);
 static void cancel_conversion_clicked (GtkWidget *w, gpointer data);
 static void reboot_clicked (GtkWidget *w, gpointer data);
+static gboolean close_running_dialog (GtkWidget *w, GdkEvent *event, gpointer data);
 
 static void
 create_running_dialog (void)
@@ -1307,6 +1309,8 @@ create_running_dialog (void)
   gtk_widget_set_sensitive (reboot_button, FALSE);
 
   /* Signals. */
+  g_signal_connect_swapped (G_OBJECT (run_dlg), "delete_event",
+                            G_CALLBACK (close_running_dialog), NULL);
   g_signal_connect_swapped (G_OBJECT (run_dlg), "destroy",
                             G_CALLBACK (gtk_main_quit), NULL);
   g_signal_connect (G_OBJECT (cancel_button), "clicked",
@@ -1358,13 +1362,38 @@ set_status (const char *msg)
 static void
 add_v2v_output (const char *msg)
 {
+  static size_t linelen = 0;
+  const char *p0, *p;
+
+  /* Gtk2 (in ~ Fedora 23) has a regression where it takes much
+   * longer to display long lines, to the point where the virt-p2v
+   * UI would still be slowly display kernel modules while the
+   * conversion had finished.  For this reason, arbitrarily break
+   * long lines.
+   */
+  for (p0 = p = msg; *p; ++p) {
+    linelen++;
+    if (*p == '\n' || linelen > 1024) {
+      add_v2v_output_2 (p0, p-p0+1);
+      if (*p != '\n')
+        add_v2v_output_2 ("\n", 1);
+      linelen = 0;
+      p0 = p+1;
+    }
+  }
+  add_v2v_output_2 (p0, p-p0);
+}
+
+static void
+add_v2v_output_2 (const char *msg, size_t len)
+{
   GtkTextBuffer *buf;
   GtkTextIter iter;
 
   /* Insert it at the end. */
   buf = gtk_text_view_get_buffer (GTK_TEXT_VIEW (v2v_output));
   gtk_text_buffer_get_end_iter (buf, &iter);
-  gtk_text_buffer_insert (buf, &iter, msg, -1);
+  gtk_text_buffer_insert (buf, &iter, msg, len);
 
   /* Scroll to the end of the buffer. */
   gtk_text_buffer_get_end_iter (buf, &iter);
@@ -1558,6 +1587,21 @@ notify_ui_callback (int type, const char *data)
   }
 
   gdk_threads_leave ();
+}
+
+static gboolean
+close_running_dialog (GtkWidget *w, GdkEvent *event, gpointer data)
+{
+  /* This function is called if the user tries to close the running
+   * dialog.  This is the same as cancelling the conversion.
+   */
+  if (conversion_is_running ()) {
+    cancel_conversion ();
+    return TRUE;
+  }
+  else
+    /* Conversion is not running, so this will delete the dialog. */
+    return FALSE;
 }
 
 static void

@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/un.h>  /* sockaddr_un */
 #include <string.h>
 #include <libintl.h>
 
@@ -43,6 +44,12 @@ launch_unix (guestfs_h *g, void *datav, const char *sockpath)
 
   if (g->hv_params) {
     error (g, _("cannot set hv parameters with the 'unix:' backend"));
+    return -1;
+  }
+
+  if (strlen (sockpath) > UNIX_PATH_MAX-1) {
+    error (g, _("socket filename too long (more than %d characters): %s"),
+           UNIX_PATH_MAX-1, sockpath);
     return -1;
   }
 

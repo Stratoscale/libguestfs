@@ -41,8 +41,8 @@ mllib/JSON_tests.ml
 mllib/common_gettext.ml
 mllib/common_utils.ml
 mllib/common_utils_tests.ml
-mllib/config.ml
 mllib/fsync.ml
+mllib/guestfs_config.ml
 mllib/libdir.ml
 mllib/mkdtemp.ml
 mllib/planner.ml
@@ -101,8 +101,8 @@ v2v/changeuid.ml
 v2v/cmdline.ml
 v2v/convert_linux.ml
 v2v/convert_windows.ml
+v2v/copy_to_local.ml
 v2v/curl.ml
-v2v/detect_antivirus.ml
 v2v/domainxml.ml
 v2v/input_disk.ml
 v2v/input_libvirt.ml
@@ -127,4 +127,6 @@ v2v/utils.ml
 v2v/v2v.ml
 v2v/v2v_unit_tests.ml
 v2v/vCenter.ml
+v2v/windows.ml
+v2v/windows_virtio.ml
 v2v/xml.ml

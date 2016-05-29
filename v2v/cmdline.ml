@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,7 +26,22 @@ open Common_utils
 open Types
 open Utils
 
+type cmdline = {
+  compressed : bool;
+  debug_overlays : bool;
+  do_copy : bool;
+  in_place : bool;
+  network_map : ((vnet_type * string) * string) list;
+  no_trim : string list;
+  output_alloc : output_allocation;
+  output_format : string option;
+  output_name : string option;
+  print_source : bool;
+  root_choice : [`Ask|`Single|`First|`Dev of string];
+}
+
 let parse_cmdline () =
+  let compressed = ref false in
   let debug_overlays = ref false in
   let do_copy = ref true in
   let machine_readable = ref false in
@@ -36,6 +51,7 @@ let parse_cmdline () =
   let dcpath = ref None in
   let input_conn = ref None in
   let input_format = ref None in
+  let in_place = ref false in
   let output_conn = ref None in
   let output_format = ref None in
   let output_name = ref None in
@@ -146,6 +162,7 @@ let parse_cmdline () =
   let argspec = [
     "-b",        Arg.String add_bridge,     "in:out " ^ s_"Map bridge 'in' to 'out'";
     "--bridge",  Arg.String add_bridge,     "in:out " ^ ditto;
+    "--compressed", Arg.Set compressed,     " " ^ s_"Compress output file";
     "--dcpath",  Arg.String (set_string_option_once "--dcpath" dcpath),
                                             "path " ^ s_"Override dcPath (for vCenter)";
     "--dcPath",  Arg.String (set_string_option_once "--dcPath" dcpath),
@@ -159,6 +176,7 @@ let parse_cmdline () =
                                             "uri " ^ s_"Libvirt URI";
     "-if",       Arg.String (set_string_option_once "-if" input_format),
                                             "format " ^ s_"Input format (for -i disk)";
+    "--in-place", Arg.Set in_place,         " " ^ s_"Only tune the guest in the input VM";
     "--machine-readable", Arg.Set machine_readable, " " ^ s_"Make output machine readable";
     "-n",        Arg.String add_network,    "in:out " ^ s_"Map network 'in' to 'out'";
     "--network", Arg.String add_network,    "in:out " ^ ditto;
@@ -218,12 +236,14 @@ read the man page virt-v2v(1).
 
   (* Dereference the arguments. *)
   let args = List.rev !args in
+  let compressed = !compressed in
   let dcpath = !dcpath in
   let debug_overlays = !debug_overlays in
   let do_copy = !do_copy in
   let input_conn = !input_conn in
   let input_format = !input_format in
   let input_mode = !input_mode in
+  let in_place = !in_place in
   let machine_readable = !machine_readable in
   let network_map = !network_map in
   let no_trim = !no_trim in
@@ -313,6 +333,8 @@ read the man page virt-v2v(1).
       Input_ova.input_ova filename in
 
   (* Parse the output mode. *)
+  if output_mode <> `Not_set && in_place then
+    error (f_"-o and --in-place cannot be used at the same time");
   let output =
     match output_mode with
     | `Glance ->
@@ -408,7 +430,12 @@ read the man page virt-v2v(1).
       } in
       Output_vdsm.output_vdsm os vdsm_params vmtype output_alloc in
 
-  input, output,
-  debug_overlays, do_copy, network_map, no_trim,
-  output_alloc, output_format, output_name,
-  print_source, root_choice
+  {
+    compressed = compressed; debug_overlays = debug_overlays;
+    do_copy = do_copy; in_place = in_place; network_map = network_map;
+    no_trim = no_trim;
+    output_alloc = output_alloc; output_format = output_format;
+    output_name = output_name;
+    print_source = print_source; root_choice = root_choice;
+  },
+  input, output

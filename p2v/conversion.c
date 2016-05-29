@@ -1,5 +1,5 @@
 /* virt-p2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,9 +33,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#include <pthread.h>
+
 #include <glib.h>
 
 #include <libxml/xmlwriter.h>
+
+#include "ignore-value.h"
 
 #include "miniexpect.h"
 #include "p2v.h"
@@ -113,7 +117,46 @@ get_conversion_error (void)
   return conversion_error;
 }
 
-static volatile sig_atomic_t stop = 0;
+static pthread_mutex_t running_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int running = 0;
+static pthread_mutex_t cancel_requested_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int cancel_requested = 0;
+
+static int
+is_running (void)
+{
+  int r;
+  pthread_mutex_lock (&running_mutex);
+  r = running;
+  pthread_mutex_unlock (&running_mutex);
+  return r;
+}
+
+static void
+set_running (int r)
+{
+  pthread_mutex_lock (&running_mutex);
+  running = r;
+  pthread_mutex_unlock (&running_mutex);
+}
+
+static int
+is_cancel_requested (void)
+{
+  int r;
+  pthread_mutex_lock (&cancel_requested_mutex);
+  r = cancel_requested;
+  pthread_mutex_unlock (&cancel_requested_mutex);
+  return r;
+}
+
+static void
+set_cancel_requested (int r)
+{
+  pthread_mutex_lock (&cancel_requested_mutex);
+  cancel_requested = r;
+  pthread_mutex_unlock (&cancel_requested_mutex);
+}
 
 #pragma GCC diagnostic ignored "-Wsuggest-attribute=noreturn"
 int
@@ -129,11 +172,17 @@ start_conversion (struct config *config,
   time_t now;
   struct tm tm;
   mexp_h *control_h = NULL;
+  char dmesg_cmd[] = "dmesg > /tmp/dmesg.XXXXXX", *dmesg_file = &dmesg_cmd[8];
+  CLEANUP_FREE char *dmesg = NULL;
+  int fd, r;
 
 #if DEBUG_STDERR
   print_config (config, stderr);
   fprintf (stderr, "\n");
 #endif
+
+  set_running (1);
+  set_cancel_requested (0);
 
   for (i = 0; config->disks[i] != NULL; ++i) {
     data_conns[i].h = NULL;
@@ -230,11 +279,33 @@ start_conversion (struct config *config,
   fprintf (stderr, "%s: libvirt XML:\n%s", guestfs_int_program_name, libvirt_xml);
 #endif
 
+  /* Get the output from the 'dmesg' command.  We will store this
+   * on the remote server.
+   */
+  fd = mkstemp (dmesg_file);
+  if (fd == -1) {
+    perror ("mkstemp");
+    goto skip_dmesg;
+  }
+  close (fd);
+  r = system (dmesg_cmd);
+  if (r == -1) {
+    perror ("system");
+    goto skip_dmesg;
+  }
+  if (!WIFEXITED (r) || WEXITSTATUS (r) != 0) {
+    fprintf (stderr, "'dmesg' failed (ignored)\n");
+    goto skip_dmesg;
+  }
+
+  ignore_value (read_whole_file (dmesg_file, &dmesg, NULL));
+ skip_dmesg:
+
   /* Open the control connection and start conversion */
   if (notify_ui)
     notify_ui (NOTIFY_STATUS, _("Setting up the control connection ..."));
 
-  control_h = start_remote_connection (config, remote_dir, libvirt_xml);
+  control_h = start_remote_connection (config, remote_dir, libvirt_xml, dmesg);
   if (control_h == NULL) {
     const char *err = get_ssh_error ();
 
@@ -309,11 +380,11 @@ start_conversion (struct config *config,
   /* Read output from the virt-v2v process and echo it through the
    * notify function, until virt-v2v closes the connection.
    */
-  while (!stop) {
+  while (!is_cancel_requested ()) {
     char buf[257];
     ssize_t r;
 
-    r = read (control_h->fd, buf, sizeof buf - 1);
+    r = read (mexp_get_fd (control_h), buf, sizeof buf - 1);
     if (r == -1) {
       /* See comment about this in miniexpect.c. */
       if (errno == EIO)
@@ -328,7 +399,7 @@ start_conversion (struct config *config,
       notify_ui (NOTIFY_REMOTE_MESSAGE, buf);
   }
 
-  if (stop) {
+  if (is_cancel_requested ()) {
     set_conversion_error ("cancelled by user");
     if (notify_ui)
       notify_ui (NOTIFY_STATUS, _("Conversion cancelled by user."));
@@ -353,13 +424,22 @@ start_conversion (struct config *config,
     }
   }
   cleanup_data_conns (data_conns, nr_disks);
+
+  set_running (0);
+
   return ret;
+}
+
+int
+conversion_is_running (void)
+{
+  return is_running ();
 }
 
 void
 cancel_conversion (void)
 {
-  stop = 1;
+  set_cancel_requested (1);
 }
 
 /* Send a shell-quoted string to remote. */
@@ -601,7 +681,7 @@ cleanup_data_conns (struct data_conn *data_conns, size_t nr)
        * these ssh connections is to send a signal.  Just closing the
        * pipe doesn't do anything.
        */
-      kill (data_conns[i].h->pid, SIGHUP);
+      kill (mexp_get_pid (data_conns[i].h), SIGHUP);
       mexp_close (data_conns[i].h);
     }
 

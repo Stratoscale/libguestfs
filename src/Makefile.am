@@ -46,7 +46,9 @@ generator_built = \
 	structs-cleanup.c \
 	structs-compare.c \
 	structs-copy.c \
-	structs-free.c
+	structs-free.c \
+	structs-print.c \
+	structs-print.h
 
 BUILT_SOURCES = \
 	$(generator_built) \
@@ -83,6 +85,7 @@ libguestfs_la_SOURCES = \
 	actions-variants.c \
 	alloc.c \
 	appliance.c \
+	available.c \
 	bindtests.c \
 	canonical-name.c \
 	command.c \
@@ -225,6 +228,8 @@ endif
 libutils_la_SOURCES = \
 	cleanup.c \
 	structs-cleanup.c \
+	structs-print.c \
+	structs-print.h \
 	utils.c
 libutils_la_CPPFLAGS = $(libguestfs_la_CPPFLAGS)
 libutils_la_CFLAGS = $(libguestfs_la_CFLAGS)
@@ -252,7 +257,8 @@ endif
 # internal tests of utility functions.  Note we don't just test what's
 # in utils.c, we can test other functions as well here.
 
-TESTS_ENVIRONMENT = $(top_builddir)/run --test $(VG)
+TESTS_ENVIRONMENT = $(top_builddir)/run --test
+LOG_COMPILER = $(VG)
 
 TESTS = test-utils
 check_PROGRAMS = test-utils
@@ -280,9 +286,9 @@ pkgconfig_DATA = libguestfs.pc
 # Manual page.
 
 man_MANS = guestfs.3 libguestfs.3
-noinst_DATA = $(top_builddir)/html/guestfs.3.html
+noinst_DATA = $(top_builddir)/website/guestfs.3.html
 
-guestfs.3 $(top_builddir)/html/guestfs.3.html: stamp-guestfs.pod
+guestfs.3 $(top_builddir)/website/guestfs.3.html: stamp-guestfs.pod
 
 stamp-guestfs.pod: guestfs.pod \
 		guestfs-actions.pod \
@@ -291,7 +297,7 @@ stamp-guestfs.pod: guestfs.pod \
 	$(PODWRAPPER) \
 	  --section 3 \
 	  --man guestfs.3 \
-	  --html $(top_builddir)/html/guestfs.3.html \
+	  --html $(top_builddir)/website/guestfs.3.html \
 	  --insert $(srcdir)/guestfs-actions.pod:__ACTIONS__ \
 	  --insert $(srcdir)/guestfs-availability.pod:__AVAILABILITY__ \
 	  --insert $(srcdir)/guestfs-structs.pod:__STRUCTS__ \

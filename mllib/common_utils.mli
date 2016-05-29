@@ -1,5 +1,5 @@
 (* Common utilities for OCaml tools in libguestfs.
- * Copyright (C) 2010-2015 Red Hat Inc.
+ * Copyright (C) 2010-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -124,6 +124,24 @@ val assoc : ?cmp:('a -> 'a -> int) -> default:'b -> 'a -> ('a * 'b) list -> 'b
 (** Like {!List.assoc} but with a user-defined comparison function, and
     instead of raising [Not_found], it returns the [~default] value. *)
 
+val may : ('a -> unit) -> 'a option -> unit
+(** [may f (Some x)] runs [f x].  [may f None] does nothing. *)
+
+type ('a, 'b) maybe = Either of 'a | Or of 'b
+(** Like the Haskell [Either] type. *)
+
+val protect : f:(unit -> 'a) -> finally:(unit -> unit) -> 'a
+(** Execute [~f] and afterwards execute [~finally].
+
+    If [~f] throws an exception then [~finally] is run and the
+    original exception from [~f] is re-raised.
+
+    If [~finally] throws an exception, then the original exception
+    is lost. (NB: Janestreet core {!Exn.protectx}, on which this
+    function is modelled, doesn't throw away the exception in this
+    case, but requires a lot more work by the caller.  Perhaps we
+    will change this in future.) *)
+
 val prog : string
 (** The program name (derived from {!Sys.executable_name}). *)
 
@@ -148,6 +166,10 @@ val warning : ('a, unit, string, unit) format4 -> 'a
 
 val info : ('a, unit, string, unit) format4 -> 'a
 (** Standard info function.  Note: Use full sentences for this. *)
+
+val open_guestfs : ?identifier:string -> unit -> Guestfs.guestfs
+(** Common function to create a new Guestfs handle, with common options
+    (e.g. debug, tracing) already set. *)
 
 val run_main_and_handle_errors : (unit -> unit) -> unit
 (** Common function for handling pretty-printing exceptions. *)

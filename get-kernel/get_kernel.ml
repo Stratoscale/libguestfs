@@ -1,5 +1,5 @@
 (* virt-get-kernel
- * Copyright (C) 2013-2015 Red Hat Inc.
+ * Copyright (C) 2013-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -149,7 +149,7 @@ let rec do_fetch ~transform_fn ~outputdir g root =
 
   g#umount_all ()
 
-and pick_kernel_files_linux g root =
+and pick_kernel_files_linux (g : Guestfs.guestfs) root =
   (* Get all kernels and initramfses. *)
   let glob w = Array.to_list (g#glob_expand w) in
   let kernels = glob "/boot/vmlinuz-*" in
@@ -182,9 +182,7 @@ let main () =
   let add, output, unversioned, prefix = parse_cmdline () in
 
   (* Connect to libguestfs. *)
-  let g = new G.guestfs () in
-  if trace () then g#set_trace true;
-  if verbose () then g#set_verbose true;
+  let g = open_guestfs () in
   add g;
   g#launch ();
 

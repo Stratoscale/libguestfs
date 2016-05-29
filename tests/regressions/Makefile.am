@@ -1,5 +1,5 @@
 # libguestfs
-# Copyright (C) 2009-2015 Red Hat Inc.
+# Copyright (C) 2009-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -37,14 +37,17 @@ EXTRA_DIST = \
 	rhbz957772.sh \
 	rhbz975797.sh \
 	rhbz1001875.sh \
+	rhbz1011907-1165785.sh \
 	rhbz1044014.sh \
 	rhbz1044014.in \
 	rhbz1044014.xml \
 	rhbz1054761.sh \
 	rhbz1091803.sh \
+	rhbz1174551.sh \
 	rhbz1175196.sh \
 	rhbz1232192.sh \
 	rhbz1232192.xml \
+	rhbz1285847.sh \
 	test-noexec-stack.pl
 
 TESTS = \
@@ -69,8 +72,11 @@ TESTS = \
 	rhbz1054761.sh \
 	rhbz1055452 \
 	rhbz1091803.sh \
+	rhbz1011907-1165785.sh \
+	rhbz1174551.sh \
 	rhbz1175196.sh \
 	rhbz1232192.sh \
+	rhbz1285847.sh \
 	test-big-heap \
 	test-noexec-stack.pl
 
@@ -124,8 +130,7 @@ rhbz914931_LDADD = \
 
 rhbz1055452_SOURCES = rhbz1055452.c
 rhbz1055452_CPPFLAGS = \
-	-I$(top_srcdir)/src -I$(top_builddir)/src \
-	-DGUESTFS_PRIVATE=1
+	-I$(top_srcdir)/src -I$(top_builddir)/src
 rhbz1055452_CFLAGS = \
 	-pthread \
 	$(WARN_CFLAGS) $(WERROR_CFLAGS)
@@ -134,8 +139,7 @@ rhbz1055452_LDADD = \
 
 test_big_heap_SOURCES = test-big-heap.c
 test_big_heap_CPPFLAGS = \
-	-I$(top_srcdir)/src -I$(top_builddir)/src \
-	-DGUESTFS_PRIVATE=1
+	-I$(top_srcdir)/src -I$(top_builddir)/src
 test_big_heap_CFLAGS = \
 	$(WARN_CFLAGS) $(WERROR_CFLAGS)
 test_big_heap_LDADD = \

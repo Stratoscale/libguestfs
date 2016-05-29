@@ -34,16 +34,17 @@ if [ "$(guestfish get-backend)" = "uml" ]; then
 fi
 
 abs_top_builddir="$(cd ..; pwd)"
-libvirt_uri="test://$abs_top_builddir/tests/guests/guests.xml"
+libvirt_uri="test://$abs_top_builddir/test-data/phony-guests/guests.xml"
 
-f=../tests/guests/windows.img
+f=../test-data/phony-guests/windows.img
 if ! test -f $f || ! test -s $f; then
     echo "$0: test skipped because phony Windows image was not created"
     exit 77
 fi
 
-export VIRT_TOOLS_DATA_DIR="$PWD/fake-virt-tools"
-export VIRTIO_WIN="$PWD/fake-virtio-win.iso"
+export VIRT_TOOLS_DATA_DIR="$srcdir/../test-data/fake-virt-tools"
+# NB: This is located in the builddir:
+export VIRTIO_WIN="../test-data/fake-virtio-win/fake-virtio-win.iso"
 
 if ! test -f "$VIRTIO_WIN"; then
     echo "$0: test skipped because fake virtio-win iso image was not created"
@@ -98,7 +99,7 @@ mktest "is-file \"$firstboot_dir/firstboot.bat\"" true
 mktest "is-dir \"$firstboot_dir/scripts\"" true
 virtio_dir="/Windows/Drivers/VirtIO"
 mktest "is-dir \"$virtio_dir\"" true
-for drv in netkvm qxl vioscsi viostor; do
+for drv in netkvm vioscsi viostor; do
     for sfx in cat inf sys; do
         mktest "is-file \"$virtio_dir/$drv.$sfx\"" true
     done

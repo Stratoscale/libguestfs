@@ -33,15 +33,15 @@ if [ "$(guestfish get-backend)" = "uml" ]; then
 fi
 
 abs_top_builddir="$(cd ..; pwd)"
-libvirt_uri="test://$abs_top_builddir/tests/guests/guests.xml"
+libvirt_uri="test://$abs_top_builddir/test-data/phony-guests/guests.xml"
 
-f=../tests/guests/windows.img
+f=../test-data/phony-guests/windows.img
 if ! test -f $f || ! test -s $f; then
     echo "$0: test skipped because phony Windows image was not created"
     exit 77
 fi
 
-export VIRT_TOOLS_DATA_DIR="$PWD/fake-virt-tools"
+export VIRT_TOOLS_DATA_DIR="$srcdir/../test-data/fake-virt-tools"
 
 d=test-v2v-o-rhev.d
 rm -rf $d

@@ -1,6 +1,6 @@
 #!/bin/bash -
 # libguestfs virt-p2v test script
-# Copyright (C) 2014-2015 Red Hat Inc.
+# Copyright (C) 2014-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -55,7 +55,7 @@ if ! test -f $img; then
     exit 77
 fi
 
-guestsdir="$(cd ../tests/guests && pwd)"
+guestsdir="$(cd ../test-data/phony-guests && pwd)"
 f="$guestsdir/windows.img"
 if ! test -f $f; then
     echo "$0: test skipped because phony Windows image was not created"

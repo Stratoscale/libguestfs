@@ -537,7 +537,7 @@ do_xfs_admin (const char *device,
   ADD_ARG (argv, i, device);
   ADD_ARG (argv, i, NULL);
 
-  r = commandv (NULL, &err, argv);
+  r = commandvf (NULL, &err, COMMAND_FLAG_FOLD_STDOUT_ON_STDERR, argv);
   if (r == -1) {
     reply_with_error ("%s: %s", device, err);
     return -1;
@@ -659,4 +659,20 @@ do_xfs_repair (const char *device,
   }
 
   return r;
+}
+
+int64_t
+xfs_minimum_size (const char *path)
+{
+  CLEANUP_FREE guestfs_int_xfsinfo *info = do_xfs_info (path);
+
+  if (info == NULL)
+    return -1;
+
+  // XFS does not support shrinking.
+  if (INT64_MAX / info->xfs_blocksize < info->xfs_datablocks) {
+    reply_with_error ("filesystem size too big: overflow");
+    return -1;
+  }
+  return info->xfs_blocksize * info->xfs_datablocks;
 }

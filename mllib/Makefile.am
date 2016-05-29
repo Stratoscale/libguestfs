@@ -1,5 +1,5 @@
 # libguestfs OCaml tools common code
-# Copyright (C) 2011-2015 Red Hat Inc.
+# Copyright (C) 2011-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@ include $(top_srcdir)/subdir-rules.mk
 
 EXTRA_DIST = \
 	$(SOURCES_MLI) \
-	$(filter-out config.ml libdir.ml,$(SOURCES_ML)) \
+	$(filter-out guestfs_config.ml libdir.ml,$(SOURCES_ML)) \
 	$(SOURCES_C) \
 	common_utils_tests.ml \
 	JSON_tests.ml
@@ -37,7 +37,7 @@ SOURCES_MLI = \
 	uRI.mli
 
 SOURCES_ML = \
-	config.ml \
+	guestfs_config.ml \
 	libdir.ml \
 	common_gettext.ml \
 	common_utils.ml \
@@ -143,7 +143,7 @@ libdir.ml: Makefile
 
 common_utils_tests_SOURCES = dummy.c
 common_utils_tests_BOBJECTS = \
-	config.cmo \
+	guestfs_config.cmo \
 	common_gettext.cmo \
 	common_utils.cmo \
 	common_utils_tests.cmo

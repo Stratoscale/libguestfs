@@ -1,5 +1,5 @@
 /* libguestfs python bindings
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -59,10 +59,10 @@ put_handle (guestfs_h *g)
 #endif
 }
 
-extern PyObject *py_guestfs_create (PyObject *self, PyObject *args);
-extern PyObject *py_guestfs_close (PyObject *self, PyObject *args);
-extern PyObject *py_guestfs_set_event_callback (PyObject *self, PyObject *args);
-extern PyObject *py_guestfs_delete_event_callback (PyObject *self, PyObject *args);
-extern PyObject *py_guestfs_event_to_string (PyObject *self, PyObject *args);
+extern PyObject *guestfs_int_py_create (PyObject *self, PyObject *args);
+extern PyObject *guestfs_int_py_close (PyObject *self, PyObject *args);
+extern PyObject *guestfs_int_py_set_event_callback (PyObject *self, PyObject *args);
+extern PyObject *guestfs_int_py_delete_event_callback (PyObject *self, PyObject *args);
+extern PyObject *guestfs_int_py_event_to_string (PyObject *self, PyObject *args);
 
 #endif /* guestfs_py_h */

@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -38,12 +38,11 @@
                              MIN_LIBVIRT_MINOR * 1000 +		\
                              MIN_LIBVIRT_MICRO)
 
-#if defined(HAVE_LIBVIRT) && LIBVIR_VERSION_NUMBER >= MIN_LIBVIRT_VERSION
-#define HAVE_LIBVIRT_BACKEND
-#endif
-
 #ifdef HAVE_LIBVIRT
 #include <libvirt/libvirt.h>
+#if LIBVIR_VERSION_NUMBER >= MIN_LIBVIRT_VERSION
+#define HAVE_LIBVIRT_BACKEND
+#endif
 #endif
 
 #include "hash.h"
@@ -360,6 +359,12 @@ struct error_cb_stack {
   void *                   error_cb_data;
 };
 
+/* Cached queried features. */
+struct cached_feature {
+  char *group;
+  int result;
+};
+
 /* The libguestfs handle. */
 struct guestfs_h
 {
@@ -502,6 +507,10 @@ struct guestfs_h
   unsigned int nr_requested_credentials;
   virConnectCredentialPtr requested_credentials;
 #endif
+
+  /* Cached features. */
+  struct cached_feature *features;
+  size_t nr_features;
 };
 
 /* Per-filesystem data stored for inspect_os. */
@@ -557,6 +566,7 @@ enum inspect_os_distro {
   OS_DISTRO_ALPINE_LINUX,
   OS_DISTRO_ALTLINUX,
   OS_DISTRO_FRUGALWARE,
+  OS_DISTRO_PLD_LINUX,
 };
 
 enum inspect_os_package_format {
@@ -683,30 +693,6 @@ extern int guestfs_int_match6 (guestfs_h *g, const char *str, const pcre *re, ch
 #define match3 guestfs_int_match3
 #define match4 guestfs_int_match4
 #define match6 guestfs_int_match6
-
-/* Macro which compiles the regexp once when the library is loaded,
- * and frees it when the library is unloaded.
- */
-#define COMPILE_REGEXP(name,pattern,options)                            \
-  static void compile_regexp_##name (void) __attribute__((constructor)); \
-  static void free_regexp_##name (void) __attribute__((destructor));    \
-  static pcre *name;                                                    \
-  static void                                                           \
-  compile_regexp_##name (void)                                          \
-  {                                                                     \
-    const char *err;                                                    \
-    int offset;                                                         \
-    name = pcre_compile ((pattern), (options), &err, &offset, NULL);    \
-    if (name == NULL) {                                                 \
-      ignore_value (write (2, err, strlen (err)));                      \
-      abort ();                                                         \
-    }                                                                   \
-  }                                                                     \
-  static void                                                           \
-  free_regexp_##name (void)                                             \
-  {                                                                     \
-    pcre_free (name);                                                   \
-  }
 
 /* stringsbuf.c */
 struct stringsbuf {

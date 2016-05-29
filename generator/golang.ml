@@ -30,6 +30,8 @@ open Structs
 open C
 open Events
 
+let generate_header = generate_header ~inputs:["generator/golang.ml"]
+
 let generate_golang_go () =
   generate_header CStyle LGPLv2plus;
 
@@ -315,7 +317,8 @@ func return_hashtable (argv **C.char) map[string]string {
           | GUID n -> pr "%s string" n
           | OptString n -> pr "%s *string" n
           | StringList n
-          | DeviceList n -> pr "%s []string" n
+          | DeviceList n
+          | FilenameList n -> pr "%s []string" n
           | BufferIn n -> pr "%s []byte" n
           | Pointer (_, n) -> pr "%s int64" n
       ) args;
@@ -380,7 +383,8 @@ func return_hashtable (argv **C.char) map[string]string {
           pr "        defer C.free (unsafe.Pointer (c_%s))\n" n;
           pr "    }\n"
         | StringList n
-        | DeviceList n ->
+        | DeviceList n
+        | FilenameList n ->
           pr "\n";
           pr "    c_%s := arg_string_list (%s)\n" n n;
           pr "    defer free_string_list (c_%s)\n" n
@@ -455,7 +459,8 @@ func return_hashtable (argv **C.char) map[string]string {
           | FileIn n | FileOut n
           | GUID n -> pr "c_%s" n
           | StringList n
-          | DeviceList n -> pr "c_%s" n
+          | DeviceList n
+          | FilenameList n -> pr "c_%s" n
           | BufferIn n -> pr "c_%s, C.size_t (len (%s))" n n
           | Pointer _ -> pr "nil"
       ) args;

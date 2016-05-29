@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2012-2015 Red Hat Inc.
+ * Copyright (C) 2012-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,8 @@ open Pr
 open Structs
 open Types
 open Utils
+
+let generate_header = generate_header ~inputs:["generator/gobject.ml"]
 
 let camel_of_name { camel_name = camel_name } = "Guestfs" ^ camel_name
 
@@ -85,7 +87,8 @@ let generate_gobject_proto name ?(single_line = true)
       | GUID n ->
         pr "const gchar *%s" n
       | StringList n
-      | DeviceList n ->
+      | DeviceList n
+      | FilenameList n ->
         pr "gchar *const *%s" n
       | BufferIn n ->
         pr "const guint8 *%s, gsize %s_size" n n
@@ -270,7 +273,7 @@ let generate_gobject_struct_header filename typ cols () =
 
   header_end filename
 
-let generate_gobject_struct_source filename typ cols () =
+let generate_gobject_struct_source filename typ () =
   let title = "Guestfs" ^ camel_name_of_struct typ in
   source_start ~title filename;
 
@@ -294,7 +297,7 @@ let generate_gobject_struct_source filename typ cols () =
   pr "G_DEFINE_BOXED_TYPE (%s, %s, %s_copy, %s_free)\n"
      camel_name name name name
 
-let generate_gobject_optargs_header filename name optargs f () =
+let generate_gobject_optargs_header filename name f () =
   header_start filename;
   let uc_name = String.uppercase name in
   let camel_name = camel_of_name f in
@@ -1052,7 +1055,7 @@ guestfs_session_close (GuestfsSession *session, GError **err)
             pr " (transfer none) (type filename):"
           | StringList _ ->
             pr " (transfer none) (array zero-terminated=1) (element-type utf8): an array of strings"
-          | DeviceList _ ->
+          | DeviceList _ | FilenameList _ ->
             pr " (transfer none) (array zero-terminated=1) (element-type filename): an array of strings"
           | BufferIn n ->
             pr " (transfer none) (array length=%s_size) (element-type guint8): an array of binary data\n" n;
@@ -1077,6 +1080,14 @@ guestfs_session_close (GuestfsSession *session, GError **err)
       pr " * %s\n" shortdesc;
       pr " *\n";
       pr " * %s\n" doc;
+
+      (match f.optional with
+      | None -> ()
+      | Some opt ->
+        pr " * This function depends on the feature \"%s\".\n" opt;
+        pr " * See also guestfs_session_feature_available().\n";
+        pr " *\n";
+      );
 
       pr " * Returns: ";
       (match ret with
@@ -1211,7 +1222,7 @@ guestfs_session_close (GuestfsSession *session, GError **err)
           | Pathname n | Dev_or_Path n | Mountable_or_Path n
           | OptString n | StringList n
           | DeviceList n | Key n | FileIn n | FileOut n
-          | GUID n ->
+          | GUID n | FilenameList n ->
             pr "%s" n
           | Pointer (_, n) ->
             pr "%s" n

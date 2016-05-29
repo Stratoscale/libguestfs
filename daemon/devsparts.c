@@ -1,5 +1,5 @@
 /* libguestfs - the guestfsd daemon
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -316,6 +316,13 @@ do_list_disk_labels (void)
 
   dir = opendir (GUESTFSDIR);
   if (!dir) {
+    if (errno == ENOENT) {
+      /* The directory does not exist, and usually this happens when
+       * there are no labels set.  In this case, act as if the directory
+       * was empty.
+       */
+      return empty_list ();
+    }
     reply_with_perror ("opendir: %s", GUESTFSDIR);
     return NULL;
   }

@@ -1,5 +1,5 @@
 # libguestfs
-# Copyright (C) 2009-2015 Red Hat Inc.
+# Copyright (C) 2009-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,6 +22,10 @@ generator_built = tests.c
 BUILT_SOURCES = $(generator_built)
 
 EXTRA_DIST = $(BUILT_SOURCES)
+
+CLEANFILES = \
+	test.log \
+	testdownload.tmp
 
 check_PROGRAMS = \
 	tests \
@@ -76,7 +80,8 @@ TESTS_ENVIRONMENT = \
 	SKIP_TEST_COMMAND=$(shell ldd test-command | grep -sq 'not a dynamic executable' || echo 1) \
 	SKIP_TEST_COMMAND_LINES=$(shell ldd test-command | grep -sq 'not a dynamic executable' || echo 1) \
 	SKIP_TEST_COMMAND=$(shell ldd test-pwd | grep -sq 'not a dynamic executable' || echo 1) \
-	$(top_builddir)/run --test $(VG)
+	$(top_builddir)/run --test
+LOG_COMPILER = $(VG)
 
 #SKIP_TEST_CHECKSUM_8=$(shell if test `find ../initramfs -name squashfs.ko | wc -l` -eq 0; then echo 1; fi)
 
@@ -254,4 +259,4 @@ test_add_libvirt_dom_LDADD = \
 endif
 
 check-valgrind:
-	$(MAKE) VG="$(top_builddir)/run @VG@" check
+	$(MAKE) VG="@VG@" check

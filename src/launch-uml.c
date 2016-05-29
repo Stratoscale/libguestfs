@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -350,7 +350,6 @@ launch_uml (guestfs_h *g, void *datav, const char *arg)
   if (g->recovery_proc) {
     r = fork ();
     if (r == 0) {
-      int i;
       struct sigaction sa;
       pid_t vmlinux_pid = data->pid;
       pid_t parent_pid = getppid ();

@@ -1,5 +1,5 @@
 # libguestfs virt-v2v tool
-# Copyright (C) 2009-2015 Red Hat Inc.
+# Copyright (C) 2009-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,10 +19,9 @@ include $(top_srcdir)/subdir-rules.mk
 
 EXTRA_DIST = \
 	$(SOURCES_MLI) $(SOURCES_ML) $(SOURCES_C) \
+	copy_to_local.ml \
 	v2v_unit_tests.ml \
 	$(TESTS) $(SLOW_TESTS) \
-	$(FAKE_VIRT_TOOLS) \
-	$(FAKE_VIRTIO_WIN) \
 	HACKING \
 	test-v2v-cdrom.expected \
 	test-v2v-cdrom.xml \
@@ -37,16 +36,16 @@ EXTRA_DIST = \
 	test-v2v-networks-and-bridges-expected.xml \
 	test-v2v-networks-and-bridges.xml \
 	test-v2v-sound.xml \
-	virt-v2v.pod
+	virt-v2v.pod \
+	virt-v2v-copy-to-local.pod
 
 CLEANFILES = *~ *.annot *.cmi *.cmo *.cmx *.cmxa *.o virt-v2v
 
 SOURCES_MLI = \
+	cmdline.mli \
 	convert_linux.mli \
 	convert_windows.mli \
 	curl.mli \
-	detect_antivirus.ml \
-	detect_antivirus.mli \
 	DOM.mli \
 	domainxml.mli \
 	input_disk.mli \
@@ -69,7 +68,10 @@ SOURCES_MLI = \
 	OVF.mli \
 	stringMap.mli \
 	types.mli \
+	utils.mli \
 	vCenter.mli \
+	windows.mli \
+	windows_virtio.mli \
 	xml.mli
 
 SOURCES_ML = \
@@ -84,7 +86,8 @@ SOURCES_ML = \
 	changeuid.ml \
 	OVF.ml \
 	linux.ml \
-	detect_antivirus.ml \
+	windows.ml \
+	windows_virtio.ml \
 	modules_list.ml \
 	input_disk.ml \
 	input_libvirtxml.ml \
@@ -112,24 +115,9 @@ SOURCES_C = \
 	utils-c.c \
 	xml-c.c
 
-fake_virt_tools_dir = fake-virt-tools
-FAKE_VIRT_TOOLS = \
-	$(fake_virt_tools_dir)/rhsrvany.exe \
-	$(fake_virt_tools_dir)/rhev-apt.exe
-
-fake_virtio_win_dir = fake-virtio-win
-FAKE_VIRTIO_WIN = $(wildcard $(fake_virtio_win_dir)/*/*/*/*)
-
-fake_virtio_win_iso = fake-virtio-win.iso
-check_DATA = $(fake_virtio_win_iso)
-CLEANFILES += $(fake_virtio_win_iso)
-
-$(fake_virtio_win_iso): $(FAKE_VIRTIO_WIN)
-	$(GENISOIMAGE) -J -r -o $@ $(fake_virtio_win_dir)
-
 if HAVE_OCAML
 
-bin_PROGRAMS = virt-v2v
+bin_PROGRAMS = virt-v2v virt-v2v-copy-to-local
 
 virt_v2v_SOURCES = $(SOURCES_C)
 virt_v2v_CPPFLAGS = \
@@ -143,7 +131,7 @@ virt_v2v_CFLAGS = \
 	$(LIBVIRT_CFLAGS)
 
 BOBJECTS = \
-	$(top_builddir)/mllib/config.cmo \
+	$(top_builddir)/mllib/guestfs_config.cmo \
 	$(top_builddir)/mllib/common_gettext.cmo \
 	$(top_builddir)/mllib/common_utils.cmo \
 	$(top_builddir)/mllib/regedit.cmo \
@@ -193,6 +181,46 @@ virt_v2v_LINK = \
 	  $(OCAMLFIND) $(BEST) $(OCAMLFLAGS) $(OCAMLPACKAGES) $(OCAMLLINKFLAGS) \
 	  $(OBJECTS) -o $@
 
+virt_v2v_copy_to_local_SOURCES = \
+	domainxml-c.c \
+	utils-c.c \
+	xml-c.c
+virt_v2v_copy_to_local_CPPFLAGS = \
+	-I. \
+	-I$(top_builddir) \
+	-I$(shell $(OCAMLC) -where) \
+	-I$(top_srcdir)/src
+virt_v2v_copy_to_local_CFLAGS = \
+	$(WARN_CFLAGS) $(WERROR_CFLAGS) \
+	$(LIBXML2_CFLAGS) \
+	$(LIBVIRT_CFLAGS)
+
+COPY_TO_LOCAL_BOBJECTS = \
+	$(top_builddir)/mllib/guestfs_config.cmo \
+	$(top_builddir)/mllib/common_gettext.cmo \
+	$(top_builddir)/mllib/common_utils.cmo \
+	$(top_builddir)/mllib/JSON.cmo \
+	xml.cmo \
+	utils.cmo \
+	curl.cmo \
+	vCenter.cmo \
+	domainxml.cmo \
+	copy_to_local.cmo
+COPY_TO_LOCAL_XOBJECTS = $(COPY_TO_LOCAL_BOBJECTS:.cmo=.cmx)
+
+if !HAVE_OCAMLOPT
+COPY_TO_LOCAL_OBJECTS = $(COPY_TO_LOCAL_BOBJECTS)
+else
+COPY_TO_LOCAL_OBJECTS = $(COPY_TO_LOCAL_XOBJECTS)
+endif
+
+virt_v2v_copy_to_local_DEPENDENCIES = \
+	$(COPY_TO_LOCAL_OBJECTS) $(top_srcdir)/ocaml-link.sh
+virt_v2v_copy_to_local_LINK = \
+	$(top_srcdir)/ocaml-link.sh -cclib '$(OCAMLCLIBS)' -- \
+	  $(OCAMLFIND) $(BEST) $(OCAMLFLAGS) $(OCAMLPACKAGES) $(OCAMLLINKFLAGS) \
+	  $(COPY_TO_LOCAL_OBJECTS) -o $@
+
 .mli.cmi:
 	$(OCAMLFIND) ocamlc $(OCAMLFLAGS) $(OCAMLPACKAGES) -c $< -o $@
 .ml.cmo:
@@ -208,21 +236,39 @@ virttoolsdatadir = $(datadir)/virt-tools
 
 # Manual pages and HTML files for the website.
 
-man_MANS = virt-v2v.1
+man_MANS = virt-v2v.1 virt-v2v-copy-to-local.1
 
-noinst_DATA = $(top_builddir)/html/virt-v2v.1.html
+noinst_DATA = \
+	$(top_builddir)/website/virt-v2v.1.html \
+	$(top_builddir)/website/virt-v2v-copy-to-local.1.html
 
-virt-v2v.1 $(top_builddir)/html/virt-v2v.1.html: stamp-virt-v2v.pod
+virt-v2v.1 $(top_builddir)/website/virt-v2v.1.html: stamp-virt-v2v.pod
 
 stamp-virt-v2v.pod: virt-v2v.pod
 	$(PODWRAPPER) \
 	  --man virt-v2v.1 \
-	  --html $(top_builddir)/html/virt-v2v.1.html \
+	  --html $(top_builddir)/website/virt-v2v.1.html \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 
-CLEANFILES += stamp-virt-v2v.pod
+virt-v2v-copy-to-local.1 $(top_builddir)/website/virt-v2v-copy-to-local.1.html: stamp-virt-v2v-copy-to-local.pod
+
+stamp-virt-v2v-copy-to-local.pod: virt-v2v-copy-to-local.pod
+	$(PODWRAPPER) \
+	  --man virt-v2v-copy-to-local.1 \
+	  --html $(top_builddir)/website/virt-v2v-copy-to-local.1.html \
+	  --license GPLv2+ \
+	  --warning safe \
+	  $<
+	touch $@
+
+CLEANFILES += \
+	stamp-virt-v2v.pod \
+	stamp-virt-v2v-copy-to-local.pod \
+	virt-v2v.1 \
+	virt-v2v-copy-to-local.1
 
 # Tests.
 
@@ -245,7 +291,8 @@ TESTS_ENVIRONMENT = $(top_builddir)/run --test
 TESTS = \
 	test-v2v-i-ova-formats.sh \
 	test-v2v-i-ova-gz.sh \
-	test-v2v-i-ova-two-disks.sh
+	test-v2v-i-ova-two-disks.sh \
+	test-v2v-copy-to-local.sh
 
 if HAVE_OCAML_PKG_OUNIT
 TESTS += v2v_unit_tests
@@ -256,6 +303,7 @@ TESTS += \
 	test-v2v-cdrom.sh \
 	test-v2v-i-ova.sh \
 	test-v2v-i-disk.sh \
+	test-v2v-in-place.sh \
 	test-v2v-machine-readable.sh \
 	test-v2v-networks-and-bridges.sh \
 	test-v2v-no-copy.sh \
@@ -275,7 +323,7 @@ TESTS += \
 endif ENABLE_APPLIANCE
 
 check-valgrind:
-	$(MAKE) VG="$(top_builddir)/run @VG@" check
+	$(MAKE) VG="$(abs_top_builddir)/run @VG@" check
 
 SLOW_TESTS = \
 	test-v2v-real-conversions.sh
@@ -313,15 +361,19 @@ check_PROGRAMS += v2v_unit_tests
 endif
 
 v2v_unit_tests_BOBJECTS = \
-	$(top_builddir)/mllib/config.cmo \
+	$(top_builddir)/mllib/guestfs_config.cmo \
 	$(top_builddir)/mllib/common_gettext.cmo \
 	$(top_builddir)/mllib/common_utils.cmo \
+	$(top_builddir)/mllib/regedit.cmo \
 	stringMap.cmo \
 	types.cmo \
 	xml.cmo \
 	utils.cmo \
 	DOM.cmo \
 	OVF.cmo \
+	windows.cmo \
+	windows_virtio.cmo \
+	linux.cmo \
 	v2v_unit_tests.cmo
 v2v_unit_tests_XOBJECTS = $(v2v_unit_tests_BOBJECTS:.cmo=.cmx)
 

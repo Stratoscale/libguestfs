@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,8 @@ open Actions
 open Structs
 open C
 open Events
+
+let generate_header = generate_header ~inputs:["generator/ruby.ml"]
 
 (* Generate ruby bindings. *)
 let rec generate_ruby_c () =
@@ -88,13 +90,13 @@ static VALUE m_guestfs;			/* guestfs module */
 static VALUE c_guestfs;			/* guestfs_h handle */
 static VALUE e_Error;			/* used for all errors */
 
-static void ruby_event_callback_wrapper (guestfs_h *g, void *data, uint64_t event, int event_handle, int flags, const char *buf, size_t buf_len, const uint64_t *array, size_t array_len);
-static VALUE ruby_event_callback_wrapper_wrapper (VALUE argv);
-static VALUE ruby_event_callback_handle_exception (VALUE not_used, VALUE exn);
+static void event_callback_wrapper (guestfs_h *g, void *data, uint64_t event, int event_handle, int flags, const char *buf, size_t buf_len, const uint64_t *array, size_t array_len);
+static VALUE event_callback_wrapper_wrapper (VALUE argv);
+static VALUE event_callback_handle_exception (VALUE not_used, VALUE exn);
 static VALUE **get_all_event_callbacks (guestfs_h *g, size_t *len_rtn);
 
 static void
-ruby_guestfs_free (void *gvp)
+free_handle (void *gvp)
 {
   guestfs_h *g = gvp;
 
@@ -129,14 +131,14 @@ ruby_guestfs_free (void *gvp)
  * function).
  */
 static VALUE
-ruby_guestfs_alloc (VALUE klass)
+alloc_handle (VALUE klass)
 {
   guestfs_h *g = NULL;
 
   /* Wrap it, and make sure the close function is called when the
    * handle goes away.
    */
-  return Data_Wrap_Struct (c_guestfs, NULL, ruby_guestfs_free, g);
+  return Data_Wrap_Struct (c_guestfs, NULL, free_handle, g);
 }
 
 static unsigned
@@ -169,7 +171,7 @@ parse_flags (int argc, VALUE *argv)
  * Ruby as an instance of the Guestfs::Guestfs class.
  */
 static VALUE
-ruby_guestfs_initialize (int argc, VALUE *argv, VALUE m)
+initialize_handle (int argc, VALUE *argv, VALUE m)
 {
   guestfs_h *g;
   unsigned flags;
@@ -196,7 +198,7 @@ ruby_guestfs_initialize (int argc, VALUE *argv, VALUE m)
 
 /* For backwards compatibility. */
 static VALUE
-ruby_guestfs_create (int argc, VALUE *argv, VALUE module)
+compat_create_handle (int argc, VALUE *argv, VALUE module)
 {
   guestfs_h *g;
   unsigned flags;
@@ -213,7 +215,7 @@ ruby_guestfs_create (int argc, VALUE *argv, VALUE module)
   /* Don't print error messages to stderr by default. */
   guestfs_set_error_handler (g, NULL, NULL);
 
-  return Data_Wrap_Struct (c_guestfs, NULL, ruby_guestfs_free, g);
+  return Data_Wrap_Struct (c_guestfs, NULL, free_handle, g);
 }
 
 /*
@@ -225,7 +227,7 @@ ruby_guestfs_create (int argc, VALUE *argv, VALUE module)
  * to close the libguestfs handle.
  */
 static VALUE
-ruby_guestfs_close (VALUE gv)
+close_handle (VALUE gv)
 {
   guestfs_h *g;
   Data_Get_Struct (gv, guestfs_h, g);
@@ -234,7 +236,7 @@ ruby_guestfs_close (VALUE gv)
    * close if a close callback does something bad like calling exit.
    */
   DATA_PTR (gv) = NULL;
-  ruby_guestfs_free (g);
+  free_handle (g);
 
   return Qnil;
 }
@@ -248,7 +250,7 @@ ruby_guestfs_close (VALUE gv)
  * to register an event callback.  This returns an event handle.
  */
 static VALUE
-ruby_set_event_callback (VALUE gv, VALUE cbv, VALUE event_bitmaskv)
+set_event_callback (VALUE gv, VALUE cbv, VALUE event_bitmaskv)
 {
   guestfs_h *g;
   uint64_t event_bitmask;
@@ -263,7 +265,7 @@ ruby_set_event_callback (VALUE gv, VALUE cbv, VALUE event_bitmaskv)
   root = guestfs_int_safe_malloc (g, sizeof *root);
   *root = cbv;
 
-  eh = guestfs_set_event_callback (g, ruby_event_callback_wrapper,
+  eh = guestfs_set_event_callback (g, event_callback_wrapper,
                                    event_bitmask, 0, root);
   if (eh == -1) {
     free (root);
@@ -287,7 +289,7 @@ ruby_set_event_callback (VALUE gv, VALUE cbv, VALUE event_bitmaskv)
  * to delete an event callback.
  */
 static VALUE
-ruby_delete_event_callback (VALUE gv, VALUE event_handlev)
+delete_event_callback (VALUE gv, VALUE event_handlev)
 {
   guestfs_h *g;
   char key[64];
@@ -318,7 +320,7 @@ ruby_delete_event_callback (VALUE gv, VALUE event_handlev)
  * to convert an event or event bitmask into a printable string.
  */
 static VALUE
-ruby_event_to_string (VALUE modulev, VALUE eventsv)
+event_to_string (VALUE modulev, VALUE eventsv)
 {
   uint64_t events;
   char *str;
@@ -335,13 +337,13 @@ ruby_event_to_string (VALUE modulev, VALUE eventsv)
 }
 
 static void
-ruby_event_callback_wrapper (guestfs_h *g,
-                             void *data,
-                             uint64_t event,
-                             int event_handle,
-                             int flags,
-                             const char *buf, size_t buf_len,
-                             const uint64_t *array, size_t array_len)
+event_callback_wrapper (guestfs_h *g,
+                        void *data,
+                        uint64_t event,
+                        int event_handle,
+                        int flags,
+                        const char *buf, size_t buf_len,
+                        const uint64_t *array, size_t array_len)
 {
   size_t i;
   volatile VALUE eventv, event_handlev, bufv, arrayv;
@@ -365,12 +367,12 @@ ruby_event_callback_wrapper (guestfs_h *g,
   argv[3] = bufv;
   argv[4] = arrayv;
 
-  rb_rescue (ruby_event_callback_wrapper_wrapper, (VALUE) argv,
-             ruby_event_callback_handle_exception, Qnil);
+  rb_rescue (event_callback_wrapper_wrapper, (VALUE) argv,
+             event_callback_handle_exception, Qnil);
 }
 
 static VALUE
-ruby_event_callback_wrapper_wrapper (VALUE argvv)
+event_callback_wrapper_wrapper (VALUE argvv)
 {
   VALUE *argv = (VALUE *) argvv;
   volatile VALUE fn, eventv, event_handlev, bufv, arrayv;
@@ -401,7 +403,7 @@ ruby_event_callback_wrapper_wrapper (VALUE argvv)
 }
 
 static VALUE
-ruby_event_callback_handle_exception (VALUE not_used, VALUE exn)
+event_callback_handle_exception (VALUE not_used, VALUE exn)
 {
   /* Callbacks aren't supposed to throw exceptions. */
   fprintf (stderr, \"libguestfs: exception in callback!\\n\");
@@ -475,6 +477,11 @@ get_all_event_callbacks (guestfs_h *g, size_t *len_rtn)
           | { deprecated_by = None } -> doc
           | { deprecated_by = Some alt } ->
             doc ^ (sprintf "\n *\n * [Deprecated] In new code, use rdoc-ref:%s instead." alt) in
+        let doc =
+          match f.optional with
+          | None -> doc
+          | Some opt ->
+            doc ^ sprintf "\n *\n * [Feature] This function depends on the feature +%s+.  See also {#feature_available}[rdoc-ref:feature_available]." opt in
 
         (* Because Ruby documentation appears as C comments, we must
          * replace any instance of "/*".
@@ -531,7 +538,7 @@ get_all_event_callbacks (guestfs_h *g, size_t *len_rtn)
        * http://stackoverflow.com/questions/7626745/extending-ruby-in-c-how-to-specify-default-argument-values-to-function
        *)
       pr "static VALUE\n";
-      pr "ruby_guestfs_%s (" f.name;
+      pr "guestfs_int_ruby_%s (" f.name;
       if optargs = [] then (
         pr "VALUE gv";
         List.iter
@@ -582,7 +589,7 @@ get_all_event_callbacks (guestfs_h *g, size_t *len_rtn)
           pr "  size_t %s_size = RSTRING_LEN (%sv);\n" n n
         | OptString n ->
           pr "  const char *%s = !NIL_P (%sv) ? StringValueCStr (%sv) : NULL;\n" n n n
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
           pr "  char **%s;\n" n;
           pr "  Check_Type (%sv, T_ARRAY);\n" n;
           pr "  {\n";
@@ -677,7 +684,7 @@ get_all_event_callbacks (guestfs_h *g, size_t *len_rtn)
         | Dev_or_Path _ | Mountable_or_Path _ | String _ | Key _
         | FileIn _ | FileOut _ | OptString _ | Bool _ | Int _ | Int64 _
         | BufferIn _ | Pointer _ | GUID _ -> ()
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
             pr "  free (%s);\n" n
       ) args;
 
@@ -761,22 +768,25 @@ Init__guestfs (void)
 #ifndef HAVE_TYPE_RB_ALLOC_FUNC_T
 #define rb_alloc_func_t void*
 #endif
-  rb_define_alloc_func (c_guestfs, (rb_alloc_func_t) ruby_guestfs_alloc);
+  rb_define_alloc_func (c_guestfs, (rb_alloc_func_t) alloc_handle);
 #endif
 
-  rb_define_method (c_guestfs, \"initialize\", ruby_guestfs_initialize, -1);
-  rb_define_method (c_guestfs, \"close\", ruby_guestfs_close, 0);
+  rb_define_method (c_guestfs, \"initialize\",
+                    initialize_handle, -1);
+  rb_define_method (c_guestfs, \"close\",
+                    close_handle, 0);
   rb_define_method (c_guestfs, \"set_event_callback\",
-                    ruby_set_event_callback, 2);
+                    set_event_callback, 2);
   rb_define_method (c_guestfs, \"delete_event_callback\",
-                    ruby_delete_event_callback, 1);
+                    delete_event_callback, 1);
   rb_define_module_function (m_guestfs, \"event_to_string\",
-                    ruby_event_to_string, 1);
+                             event_to_string, 1);
 
   /* For backwards compatibility with older code, define a ::create
    * module function.
    */
-  rb_define_module_function (m_guestfs, \"create\", ruby_guestfs_create, -1);
+  rb_define_module_function (m_guestfs, \"create\",
+                             compat_create_handle, -1);
 
 ";
 
@@ -797,13 +807,13 @@ Init__guestfs (void)
           non_c_aliases = non_c_aliases } ->
       let nr_args = if optargs = [] then List.length args else -1 in
       pr "  rb_define_method (c_guestfs, \"%s\",\n" name;
-      pr "        ruby_guestfs_%s, %d);\n" name nr_args;
+      pr "                    guestfs_int_ruby_%s, %d);\n" name nr_args;
 
       (* Aliases. *)
       List.iter (
         fun alias ->
           pr "  rb_define_method (c_guestfs, \"%s\",\n" alias;
-          pr "        ruby_guestfs_%s, %d);\n" name nr_args
+          pr "                    guestfs_int_ruby_%s, %d);\n" name nr_args
       ) non_c_aliases
   ) external_functions_sorted;
 

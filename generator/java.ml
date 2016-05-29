@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,15 @@ open Actions
 open Structs
 open Events
 open C
+
+let generate_header = generate_header ~inputs:["generator/java.ml"]
+
+let drop_empty_trailing_lines l =
+  let rec loop = function
+    | "" :: tl -> loop tl
+    | x -> x
+  in
+  List.rev (loop (List.rev l))
 
 (* Generate Java bindings GuestFS.java file. *)
 let rec generate_java_java () =
@@ -77,7 +86,7 @@ public class GuestFS {
   /**
    * Create a libguestfs handle, setting flags.
    *
-   * @throws LibGuestFSException
+   * @throws LibGuestFSException If there is a libguestfs error.
    */
   public GuestFS (Map<String, Object> optargs) throws LibGuestFSException
   {
@@ -101,7 +110,7 @@ public class GuestFS {
   /**
    * Create a libguestfs handle.
    *
-   * @throws LibGuestFSException
+   * @throws LibGuestFSException If there is a libguestfs error.
    */
   public GuestFS () throws LibGuestFSException
   {
@@ -121,7 +130,7 @@ public class GuestFS {
    * exception.
    * </p>
    *
-   * @throws LibGuestFSException
+   * @throws LibGuestFSException If there is a libguestfs error.
    */
   public void close () throws LibGuestFSException
   {
@@ -198,7 +207,7 @@ public class GuestFS {
    * the libguestfs handle is closed.
    * </p>
    *
-   * @throws LibGuestFSException
+   * @throws LibGuestFSException If there is a libguestfs error.
    * @see \"The section &quot;EVENTS&quot; in the guestfs(3) manual\"
    * @see #delete_event_callback
    * @return handle for the event
@@ -228,7 +237,7 @@ public class GuestFS {
    * libguestfs handle is closed.
    * </p>
    *
-   * @throws LibGuestFSException
+   * @throws LibGuestFSException If there is a libguestfs error.
    * @see #set_event_callback
    */
   public void delete_event_callback (int eh)
@@ -260,6 +269,7 @@ public class GuestFS {
             doc ^ "\n\n" ^ protocol_limit_warning
           else doc in
         let doc = pod2text ~width:60 f.name doc in
+        let doc = drop_empty_trailing_lines doc in
         let doc = List.map (		(* RHBZ#501883 *)
           function
           | "" -> "</p><p>"
@@ -272,6 +282,13 @@ public class GuestFS {
         pr "   * %s\n" f.shortdesc;
         pr "   * </p><p>\n";
         pr "   * %s\n" doc;
+        (match f.optional with
+        | None -> ()
+        | Some opt ->
+          pr "   * </p><p>\n";
+          pr "   * This function depends on the feature \"%s\".  See also {@link #feature_available}.\n"
+            opt;
+        );
         pr "   * </p>\n";
         (match version_added f with
         | None -> ()
@@ -282,7 +299,7 @@ public class GuestFS {
         | { deprecated_by = Some alt } ->
           pr "   * @deprecated In new code, use {@link #%s} instead\n" alt
         );
-        pr "   * @throws LibGuestFSException\n";
+        pr "   * @throws LibGuestFSException If there is a libguestfs error.\n";
         pr "   */\n";
       );
       pr "  ";
@@ -485,7 +502,7 @@ and generate_java_prototype ?(public=false) ?(privat=false) ?(native=false)
           pr "String %s" n
       | BufferIn n ->
           pr "byte[] %s" n
-      | StringList n | DeviceList n ->
+      | StringList n | DeviceList n | FilenameList n ->
           pr "String[] %s" n
       | Bool n ->
           pr "boolean %s" n
@@ -633,13 +650,13 @@ Java_com_redhat_et_libguestfs_GuestFS__1close
 #define METHOD_SIGNATURE \"(JILjava/lang/String;[J)V\"
 
 static void
-guestfs_java_callback (guestfs_h *g,
-                       void *opaque,
-                       uint64_t event,
-                       int event_handle,
-                       int flags,
-                       const char *buf, size_t buf_len,
-                       const uint64_t *array, size_t array_len)
+java_callback (guestfs_h *g,
+               void *opaque,
+               uint64_t event,
+               int event_handle,
+               int flags,
+               const char *buf, size_t buf_len,
+               const uint64_t *array, size_t array_len)
 {
   struct callback_data *data = opaque;
   JavaVM *jvm = data->jvm;
@@ -721,7 +738,7 @@ Java_com_redhat_et_libguestfs_GuestFS__1set_1event_1callback
   (*env)->GetJavaVM (env, &data->jvm);
   data->method = method;
 
-  r = guestfs_set_event_callback (g, guestfs_java_callback,
+  r = guestfs_set_event_callback (g, java_callback,
                                   (uint64_t) jevents, 0, data);
   if (r == -1) {
     free (data);
@@ -846,7 +863,7 @@ get_all_event_callbacks (guestfs_h *g, size_t *len_rtn)
             pr ", jstring j%s" n
         | BufferIn n ->
             pr ", jbyteArray j%s" n
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
             pr ", jobjectArray j%s" n
         | Bool n ->
             pr ", jboolean j%s" n
@@ -917,7 +934,7 @@ get_all_event_callbacks (guestfs_h *g, size_t *len_rtn)
         | BufferIn n ->
             pr "  char *%s;\n" n;
             pr "  size_t %s_size;\n" n
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
             pr "  size_t %s_len;\n" n;
             pr "  char **%s;\n" n
         | Bool n
@@ -979,7 +996,7 @@ get_all_event_callbacks (guestfs_h *g, size_t *len_rtn)
         | BufferIn n ->
             pr "  %s = (char *) (*env)->GetByteArrayElements (env, j%s, NULL);\n" n n;
             pr "  %s_size = (*env)->GetArrayLength (env, j%s);\n" n n
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
             pr "  %s_len = (*env)->GetArrayLength (env, j%s);\n" n n;
             pr "  %s = guestfs_int_safe_malloc (g, sizeof (char *) * (%s_len+1));\n" n n;
             pr "  for (i = 0; i < %s_len; ++i) {\n" n;
@@ -1044,7 +1061,7 @@ get_all_event_callbacks (guestfs_h *g, size_t *len_rtn)
             pr "    (*env)->ReleaseStringUTFChars (env, j%s, %s);\n" n n
         | BufferIn n ->
             pr "  (*env)->ReleaseByteArrayElements (env, j%s, (jbyte *) %s, 0);\n" n n
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
             pr "  for (i = 0; i < %s_len; ++i) {\n" n;
             pr "    jobject o = (*env)->GetObjectArrayElement (env, j%s, i);\n"
               n;

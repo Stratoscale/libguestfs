@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,6 +99,8 @@ Run it from the top source directory using the command
   output_to "src/structs-copy.c" generate_client_structs_copy;
   output_to "src/structs-free.c" generate_client_structs_free;
   output_to "src/structs-cleanup.c" generate_client_structs_cleanup;
+  output_to "src/structs-print.c" generate_client_structs_print_c;
+  output_to "src/structs-print.h" generate_client_structs_print_h;
   output_to "src/actions-variants.c" generate_client_actions_variants;
 
   for i = 0 to nr_actions_files-1 do
@@ -127,7 +129,7 @@ Run it from the top source directory using the command
   output_to "ocaml/guestfs-c-actions.c" generate_ocaml_c;
   output_to "ocaml/guestfs-c-errnos.c" generate_ocaml_c_errnos;
   output_to "ocaml/bindtests.ml" generate_ocaml_bindtests;
-  output_to "perl/Guestfs.xs" generate_perl_xs;
+  output_to "perl/lib/Sys/Guestfs.xs" generate_perl_xs;
   output_to "perl/lib/Sys/Guestfs.pm" generate_perl_pm;
   output_to "perl/bindtests.pl" generate_perl_bindtests;
   output_to "python/guestfs-py.c" generate_python_c;
@@ -178,7 +180,7 @@ Run it from the top source directory using the command
         sprintf "gobject/include/guestfs-gobject/%s.h" short in
       output_to filename (generate_gobject_struct_header short typ cols);
       let filename = sprintf "gobject/src/%s.c" short in
-      output_to filename (generate_gobject_struct_source short typ cols)
+      output_to filename (generate_gobject_struct_source short typ)
   ) external_structs;
   delete_except_generated "gobject/include/guestfs-gobject/struct-*.h";
   delete_except_generated "gobject/src/struct-*.c";
@@ -190,7 +192,7 @@ Run it from the top source directory using the command
       let filename =
         sprintf "gobject/include/guestfs-gobject/%s.h" short in
       output_to filename
-        (generate_gobject_optargs_header short name optargs f);
+        (generate_gobject_optargs_header short name f);
       let filename = sprintf "gobject/src/%s.c" short in
       output_to filename
         (generate_gobject_optargs_source short name optargs f)

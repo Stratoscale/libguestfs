@@ -1,5 +1,5 @@
 # virt-customize
-# Copyright (C) 2014-2015 Red Hat Inc.
+# Copyright (C) 2014-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -91,7 +91,7 @@ virt_customize_CFLAGS = \
 	$(LIBXML2_CFLAGS)
 
 BOBJECTS = \
-	$(top_builddir)/mllib/config.cmo \
+	$(top_builddir)/mllib/guestfs_config.cmo \
 	$(top_builddir)/mllib/common_gettext.cmo \
 	$(top_builddir)/mllib/common_utils.cmo \
 	$(top_builddir)/mllib/regedit.cmo \
@@ -150,17 +150,18 @@ endif
 
 # Manual pages and HTML files for the website.
 man_MANS = virt-customize.1
-noinst_DATA = $(top_builddir)/html/virt-customize.1.html
+noinst_DATA = $(top_builddir)/website/virt-customize.1.html
 
-virt-customize.1 $(top_builddir)/html/virt-customize.1.html: stamp-virt-customize.pod
+virt-customize.1 $(top_builddir)/website/virt-customize.1.html: stamp-virt-customize.pod
 
 stamp-virt-customize.pod: virt-customize.pod $(top_srcdir)/customize/customize-synopsis.pod $(top_srcdir)/customize/customize-options.pod
 	$(PODWRAPPER) \
 	  --man virt-customize.1 \
-	  --html $(top_builddir)/html/virt-customize.1.html \
+	  --html $(top_builddir)/website/virt-customize.1.html \
 	  --insert $(top_srcdir)/customize/customize-synopsis.pod:__CUSTOMIZE_SYNOPSIS__ \
 	  --insert $(top_srcdir)/customize/customize-options.pod:__CUSTOMIZE_OPTIONS__ \
 	  --license GPLv2+ \
+	  --warning general \
 	  $<
 	touch $@
 

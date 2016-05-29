@@ -1,5 +1,5 @@
 # Kickstart file for creating the virt-p2v ISO.
-# (C) Copyright 2014-2015 Red Hat Inc.
+# (C) Copyright 2014-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -69,6 +69,9 @@ firewalld
 
 # Work around https://bugzilla.redhat.com/show_bug.cgi?id=1182362
 tar
+
+# https://bugzilla.redhat.com/show_bug.cgi?id=1168223
+dracut-live
 
 # The dependencies of virt-p2v.
 __DEPENDENCIES__
@@ -168,7 +171,7 @@ sed -i -e '
 #/label check0/{N;N;N;d;}
 
 # Set the default timeout to 60 seconds
-s/^timeout .*/timeout 60/
+s/^timeout .*/timeout 600/
 ' $LIVE_ROOT/isolinux/isolinux.cfg
 
 # TODO: Replace the splash screen with something P2V appropriate

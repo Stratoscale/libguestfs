@@ -1,5 +1,5 @@
 # libguestfs
-# Copyright (C) 2009-2015 Red Hat Inc.
+# Copyright (C) 2009-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,7 +21,8 @@ if HAVE_FUSE
 
 TESTS = test-parallel-mount-local
 
-TESTS_ENVIRONMENT = $(top_builddir)/run --test $(VG)
+TESTS_ENVIRONMENT = $(top_builddir)/run --test
+LOG_COMPILER = $(VG)
 
 check_PROGRAMS = $(TESTS)
 
@@ -48,6 +49,6 @@ test_parallel_mount_local_LDADD = \
 	$(top_builddir)/gnulib/lib/libgnu.la
 
 check-valgrind:
-	$(MAKE) VG="$(top_builddir)/run @VG@" check
+	$(MAKE) VG="@VG@" check
 
 endif

@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,8 @@ open Actions
 open Structs
 open C
 open Events
+
+let generate_header = generate_header ~inputs:["generator/python.ml"]
 
 (* Generate Python C module. *)
 let rec generate_python_c () =
@@ -223,10 +225,12 @@ put_table (char * const * const argv)
         | name, FChar ->
             pr "#ifdef HAVE_PYSTRING_ASSTRING\n";
             pr "  PyDict_SetItemString (dict, \"%s\",\n" name;
-            pr "                        PyString_FromStringAndSize (&dirent->%s, 1));\n" name;
+            pr "                        PyString_FromStringAndSize (&%s->%s, 1));\n"
+              typ name;
             pr "#else\n";
             pr "  PyDict_SetItemString (dict, \"%s\",\n" name;
-            pr "                        PyUnicode_FromStringAndSize (&dirent->%s, 1));\n" name;
+            pr "                        PyUnicode_FromStringAndSize (&%s->%s, 1));\n"
+              typ name;
             pr "#endif\n"
       ) cols;
       pr "  return dict;\n";
@@ -252,7 +256,7 @@ put_table (char * const * const argv)
           c_function = c_function; c_optarg_prefix = c_optarg_prefix } ->
       pr "#ifdef GUESTFS_HAVE_%s\n" (String.uppercase name);
       pr "static PyObject *\n";
-      pr "py_guestfs_%s (PyObject *self, PyObject *args)\n" name;
+      pr "guestfs_int_py_%s (PyObject *self, PyObject *args)\n" name;
       pr "{\n";
 
       if blocking then
@@ -292,7 +296,7 @@ put_table (char * const * const argv)
         | BufferIn n ->
             pr "  const char *%s;\n" n;
             pr "  Py_ssize_t %s_size;\n" n
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
             pr "  PyObject *py_%s;\n" n;
             pr "  char **%s = NULL;\n" n
         | Bool n -> pr "  int %s;\n" n
@@ -326,7 +330,7 @@ put_table (char * const * const argv)
         | Dev_or_Path _ | Mountable_or_Path _ | String _ | Key _
         | FileIn _ | FileOut _ | GUID _ -> pr "s"
         | OptString _ -> pr "z"
-        | StringList _ | DeviceList _ -> pr "O"
+        | StringList _ | DeviceList _ | FilenameList _ -> pr "O"
         | Bool _ -> pr "i" (* XXX Python has booleans? *)
         | Int _ -> pr "i"
         | Int64 _ ->
@@ -349,7 +353,8 @@ put_table (char * const * const argv)
         | Dev_or_Path n | Mountable_or_Path n | String n | Key n
         | FileIn n | FileOut n | GUID n -> pr ", &%s" n
         | OptString n -> pr ", &%s" n
-        | StringList n | DeviceList n -> pr ", &py_%s" n
+        | StringList n | DeviceList n | FilenameList n ->
+            pr ", &py_%s" n
         | Bool n -> pr ", &%s" n
         | Int n -> pr ", &%s" n
         | Int64 n -> pr ", &%s" n
@@ -372,7 +377,7 @@ put_table (char * const * const argv)
         | Dev_or_Path _ | Mountable_or_Path _ | String _ | Key _
         | FileIn _ | FileOut _ | OptString _ | Bool _ | Int _ | Int64 _
         | BufferIn _ | GUID _ -> ()
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
             pr "  %s = get_string_list (py_%s);\n" n n;
             pr "  if (!%s) goto out;\n" n
         | Pointer (_, n) ->
@@ -522,7 +527,7 @@ put_table (char * const * const argv)
         | Dev_or_Path _ | Mountable_or_Path _ | String _ | Key _
         | FileIn _ | FileOut _ | OptString _ | Bool _ | Int _ | Int64 _
         | BufferIn _ | Pointer _ | GUID _ -> ()
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
             pr "  free (%s);\n" n
       ) args;
 
@@ -546,18 +551,18 @@ put_table (char * const * const argv)
 
   (* Table of functions. *)
   pr "static PyMethodDef methods[] = {\n";
-  pr "  { (char *) \"create\", py_guestfs_create, METH_VARARGS, NULL },\n";
-  pr "  { (char *) \"close\", py_guestfs_close, METH_VARARGS, NULL },\n";
+  pr "  { (char *) \"create\", guestfs_int_py_create, METH_VARARGS, NULL },\n";
+  pr "  { (char *) \"close\", guestfs_int_py_close, METH_VARARGS, NULL },\n";
   pr "  { (char *) \"set_event_callback\",\n";
-  pr "    py_guestfs_set_event_callback, METH_VARARGS, NULL },\n";
+  pr "    guestfs_int_py_set_event_callback, METH_VARARGS, NULL },\n";
   pr "  { (char *) \"delete_event_callback\",\n";
-  pr "    py_guestfs_delete_event_callback, METH_VARARGS, NULL },\n";
+  pr "    guestfs_int_py_delete_event_callback, METH_VARARGS, NULL },\n";
   pr "  { (char *) \"event_to_string\",\n";
-  pr "    py_guestfs_event_to_string, METH_VARARGS, NULL },\n";
+  pr "    guestfs_int_py_event_to_string, METH_VARARGS, NULL },\n";
   List.iter (
     fun { name = name } ->
       pr "#ifdef GUESTFS_HAVE_%s\n" (String.uppercase name);
-      pr "  { (char *) \"%s\", py_guestfs_%s, METH_VARARGS, NULL },\n"
+      pr "  { (char *) \"%s\", guestfs_int_py_%s, METH_VARARGS, NULL },\n"
         name name;
       pr "#endif\n"
   ) external_functions_sorted;
@@ -814,6 +819,11 @@ class GuestFS(object):
           match deprecation_notice f with
           | None -> doc
           | Some txt -> doc ^ "\n\n" ^ txt in
+        let doc =
+          match f.optional with
+          | None -> doc
+          | Some opt ->
+            doc ^ sprintf "\n\nThis function depends on the feature C<%s>.  See also C<g.feature-available>." opt in
         let doc = pod2text ~width:60 f.name doc in
         let doc = List.map (fun line -> replace_str line "\\" "\\\\") doc in
         let doc = String.concat "\n        " doc in
@@ -829,7 +839,7 @@ class GuestFS(object):
         | Dev_or_Path _ | Mountable_or_Path _ | String _ | Key _
         | FileIn _ | FileOut _ | OptString _ | Bool _ | Int _ | Int64 _
         | BufferIn _ | GUID _ -> ()
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
           pr "        %s = list (%s)\n" n n
         | Pointer (_, n) ->
           pr "        %s = %s.c_pointer()\n" n n

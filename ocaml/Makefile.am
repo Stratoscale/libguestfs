@@ -34,7 +34,7 @@ EXTRA_DIST = \
 	t/*.ml
 
 CLEANFILES = *.annot *.cmi *.cmo *.cmx *.cma *.cmxa *.o *.a *.so
-CLEANFILES += t/*.cmi t/*.cmo t/*.cmx t/*.o t/*.a t/*.so
+CLEANFILES += t/*.annot t/*.cmi t/*.cmo t/*.cmx t/*.o t/*.a t/*.so
 
 if HAVE_OCAML
 
@@ -100,9 +100,13 @@ noinst_DATA += html/index.html
 html/index.html: $(srcdir)/guestfs.mli $(srcdir)/guestfs.ml
 	-$(OCAMLFIND) ocamldoc -d html -html $^
 
+clean-local:
+	rm -rf html/*
+
 endif
 
-TESTS_ENVIRONMENT = $(top_builddir)/run --test $(VG)
+TESTS_ENVIRONMENT = $(top_builddir)/run --test
+LOG_COMPILER = $(VG)
 
 test_progs_bc = \
 	t/guestfs_010_load.bc \
@@ -113,6 +117,7 @@ test_progs_bc = \
 	t/guestfs_060_explicit_close.bc \
 	t/guestfs_065_implicit_close.bc \
 	t/guestfs_070_optargs.bc \
+	t/guestfs_080_version.bc \
 	t/guestfs_410_close_event.bc \
 	t/guestfs_420_log_messages.bc
 
@@ -125,6 +130,7 @@ test_progs_opt = \
 	t/guestfs_060_explicit_close.opt \
 	t/guestfs_065_implicit_close.opt \
 	t/guestfs_070_optargs.opt \
+	t/guestfs_080_version.opt \
 	t/guestfs_410_close_event.opt \
 	t/guestfs_420_log_messages.opt
 
@@ -159,7 +165,9 @@ if HAVE_OCAMLOPT
 endif
 
 check-valgrind:
-	$(MAKE) VG="$(top_builddir)/run @VG@" TESTS="$(test_progs_all)" check
+	$(MAKE) VG="@VG@" TESTS="$(test_progs_all)" check
+
+CLEANFILES += bindtests.tmp
 
 # Dependencies.
 %.cmi: %.mli
@@ -190,7 +198,9 @@ depend: .depend
 
 SUFFIXES = .cmo .cmi .cmx .ml .mli .mll .mly
 
-# Do the installation by hand, because we want to run ocamlfind.
+# Run ocamlfind to perform the install.  ocamlfind refuses to install
+# the package if it is already installed, so remove the old package
+# first.
 data_hook_files = META *.so *.a *.cma *.cmi $(srcdir)/*.mli
 if HAVE_OCAMLOPT
 data_hook_files += *.cmx *.cmxa
@@ -199,6 +209,8 @@ endif
 install-data-hook:
 	mkdir -p $(DESTDIR)$(OCAMLLIB)
 	mkdir -p $(DESTDIR)$(OCAMLLIB)/stublibs
+	rm -rf $(DESTDIR)$(OCAMLLIB)/guestfs
+	rm -rf $(DESTDIR)$(OCAMLLIB)/stublibs/dllmlguestfs.so*
 	$(OCAMLFIND) install \
 	  -ldconf ignore -destdir $(DESTDIR)$(OCAMLLIB) \
 	  guestfs \

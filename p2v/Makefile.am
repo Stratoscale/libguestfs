@@ -1,5 +1,5 @@
 # libguestfs virt-p2v
-# Copyright (C) 2009-2015 Red Hat Inc.
+# Copyright (C) 2009-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -33,7 +33,10 @@ EXTRA_DIST = \
 CLEANFILES = \
 	stamp-virt-p2v.pod \
 	stamp-virt-p2v-make-disk.pod \
-	stamp-virt-p2v-make-kickstart.pod
+	stamp-virt-p2v-make-kickstart.pod \
+	virt-p2v.1 \
+	virt-p2v-make-disk.1 \
+	virt-p2v-make-kickstart.1
 
 # Although virt-p2v is a regular binary, it is not usually installed
 # in /usr/bin since it only functions when contained in an ISO or PXE
@@ -57,7 +60,8 @@ virt_p2v_SOURCES = \
 	miniexpect.h \
 	p2v.h \
 	ssh.c \
-	utils.c
+	utils.c \
+	whole-file.c
 
 virt_p2v_CPPFLAGS = \
 	-DLOCALEBASEDIR=\""$(datadir)/locale"\" \
@@ -117,37 +121,40 @@ man_MANS = \
 	virt-p2v-make-kickstart.1
 
 noinst_DATA = \
-	$(top_builddir)/html/virt-p2v.1.html \
-	$(top_builddir)/html/virt-p2v-make-disk.1.html \
-	$(top_builddir)/html/virt-p2v-make-kickstart.1.html
+	$(top_builddir)/website/virt-p2v.1.html \
+	$(top_builddir)/website/virt-p2v-make-disk.1.html \
+	$(top_builddir)/website/virt-p2v-make-kickstart.1.html
 
-virt-p2v.1 $(top_builddir)/html/virt-p2v.1.html: stamp-virt-p2v.pod
+virt-p2v.1 $(top_builddir)/website/virt-p2v.1.html: stamp-virt-p2v.pod
 
 stamp-virt-p2v.pod: virt-p2v.pod
 	$(PODWRAPPER) \
 	  --man virt-p2v.1 \
-	  --html $(top_builddir)/html/virt-p2v.1.html \
+	  --html $(top_builddir)/website/virt-p2v.1.html \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 
-virt-p2v-make-disk.1 $(top_builddir)/html/virt-p2v-make-disk.1.html: stamp-virt-p2v-make-disk.pod
+virt-p2v-make-disk.1 $(top_builddir)/website/virt-p2v-make-disk.1.html: stamp-virt-p2v-make-disk.pod
 
 stamp-virt-p2v-make-disk.pod: virt-p2v-make-disk.pod
 	$(PODWRAPPER) \
 	  --man virt-p2v-make-disk.1 \
-	  --html $(top_builddir)/html/virt-p2v-make-disk.1.html \
+	  --html $(top_builddir)/website/virt-p2v-make-disk.1.html \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 
-virt-p2v-make-kickstart.1 $(top_builddir)/html/virt-p2v-make-kickstart.1.html: stamp-virt-p2v-make-kickstart.pod
+virt-p2v-make-kickstart.1 $(top_builddir)/website/virt-p2v-make-kickstart.1.html: stamp-virt-p2v-make-kickstart.pod
 
 stamp-virt-p2v-make-kickstart.pod: virt-p2v-make-kickstart.pod
 	$(PODWRAPPER) \
 	  --man virt-p2v-make-kickstart.1 \
-	  --html $(top_builddir)/html/virt-p2v-make-kickstart.1.html \
+	  --html $(top_builddir)/website/virt-p2v-make-kickstart.1.html \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 

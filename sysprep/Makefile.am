@@ -1,5 +1,5 @@
 # libguestfs virt-sysprep tool
-# Copyright (C) 2012-2015 Red Hat Inc.
+# Copyright (C) 2012-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,8 +27,9 @@ EXTRA_DIST = \
 
 CLEANFILES = \
 	*~ *.annot *.cmi *.cmo *.cmx *.cmxa *.o \
-	virt-sysprep virt-sysprep.1 \
-	stamp-virt-sysprep.pod
+	stamp-virt-sysprep.pod \
+	virt-sysprep \
+	virt-sysprep.1
 
 # Filenames sysprep_operation_<name>.ml in alphabetical order.
 operations = \
@@ -103,7 +104,7 @@ virt_sysprep_CFLAGS = \
 	$(LIBXML2_CFLAGS)
 
 BOBJECTS = \
-	$(top_builddir)/mllib/config.cmo \
+	$(top_builddir)/mllib/guestfs_config.cmo \
 	$(top_builddir)/mllib/common_gettext.cmo \
 	$(top_builddir)/mllib/common_utils.cmo \
 	$(top_builddir)/mllib/uRI.cmo \
@@ -176,17 +177,18 @@ endif
 
 # Manual pages and HTML files for the website.
 man_MANS = virt-sysprep.1
-noinst_DATA = $(top_builddir)/html/virt-sysprep.1.html
+noinst_DATA = $(top_builddir)/website/virt-sysprep.1.html
 
-virt-sysprep.1 $(top_builddir)/html/virt-sysprep.1.html: stamp-virt-sysprep.pod
+virt-sysprep.1 $(top_builddir)/website/virt-sysprep.1.html: stamp-virt-sysprep.pod
 
 stamp-virt-sysprep.pod: virt-sysprep.pod sysprep-extra-options.pod sysprep-operations.pod
 	$(PODWRAPPER) \
 	  --man virt-sysprep.1 \
           --insert sysprep-extra-options.pod:__EXTRA_OPTIONS__ \
           --insert sysprep-operations.pod:__OPERATIONS__ \
-	  --html $(top_builddir)/html/virt-sysprep.1.html \
+	  --html $(top_builddir)/website/virt-sysprep.1.html \
 	  --license GPLv2+ \
+	  --warning general \
 	  $<
 	touch $@
 
@@ -211,8 +213,12 @@ TESTS_ENVIRONMENT = \
 if ENABLE_APPLIANCE
 TESTS = \
 	test-virt-sysprep.sh \
-	test-virt-sysprep-passwords.sh \
+	test-virt-sysprep-passwords.sh
+
+if HAVE_FUSE
+TESTS += \
 	test-virt-sysprep-script.sh
+endif HAVE_FUSE
 endif ENABLE_APPLIANCE
 
 check-valgrind:
