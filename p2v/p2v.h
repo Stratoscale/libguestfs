@@ -1,5 +1,5 @@
 /* virt-p2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -112,11 +112,12 @@ extern int start_conversion (struct config *, void (*notify_ui) (int type, const
 #define NOTIFY_STATUS         3  /* stage in conversion process */
 extern const char *get_conversion_error (void);
 extern void cancel_conversion (void);
+extern int conversion_is_running (void);
 
 /* ssh.c */
 extern int test_connection (struct config *);
 extern mexp_h *open_data_connection (struct config *, int *local_port, int *remote_port);
-extern mexp_h *start_remote_connection (struct config *, const char *remote_dir, const char *libvirt_xml);
+extern mexp_h *start_remote_connection (struct config *, const char *remote_dir, const char *libvirt_xml, const char *dmesg);
 extern const char *get_ssh_error (void);
 
 /* utils.c */
@@ -124,10 +125,11 @@ extern char *get_if_addr (const char *if_name);
 extern char *get_if_vendor (const char *if_name, int truncate);
 extern void wait_network_online (const struct config *);
 
+/* whole-file.c */
+extern int read_whole_file (const char *filename, char **data_r, size_t *size_r);
+
 /* virt-v2v version and features (read from remote). */
-extern int v2v_major;
-extern int v2v_minor;
-extern int v2v_release;
+extern char *v2v_version;
 
 /* input and output drivers (read from remote). */
 extern char **input_drivers;

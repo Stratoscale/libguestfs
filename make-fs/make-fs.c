@@ -1,5 +1,5 @@
 /* virt-make-fs
- * Copyright (C) 2010-2015 Red Hat Inc.
+ * Copyright (C) 2010-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -75,7 +75,7 @@ usage (int status)
              guestfs_int_program_name);
   else {
     printf (_("%s: make a filesystem from a tar archive or files\n"
-              "Copyright (C) 2010-2015 Red Hat Inc.\n"
+              "Copyright (C) 2010-2016 Red Hat Inc.\n"
               "Usage:\n"
               "  %s [--options] input.tar output.img\n"
               "  %s [--options] input.tar.gz output.img\n"
@@ -773,8 +773,8 @@ do_make_fs (const char *input, const char *output_str)
 
     if (r == -1) {
       /* Provide more guidance in the error message (RHBZ#823883). */
-      fprintf (stderr, "%s: 'mkfs' (create filesystem) operation failed.\n",
-               guestfs_int_program_name);
+      fprintf (stderr, "%s: 'mkfs' (create filesystem) operation failed: %s\n",
+               guestfs_int_program_name, guestfs_last_error (g));
       if (STREQ (type, "fat"))
         fprintf (stderr, "Instead of 'fat', try 'vfat' (long filenames) or 'msdos' (short filenames).\n");
       else

@@ -32,7 +32,7 @@ rm -f test-copy.img
 rm -rf test-copy-original test-copy-copy
 
 mkdir test-copy-original
-cp $srcdir/../tests/data/known* test-copy-original
+cp $srcdir/../test-data/files/known* test-copy-original
 ln -sf /nowhere test-copy-original/abssymlink
 
 output=$(
@@ -63,7 +63,7 @@ fi
 
 mkdir test-copy-copy
 
-$VG guestfish --ro -a test-copy.img -m /dev/sda1 <<EOF
+$VG guestfish --ro --format=raw -a test-copy.img -m /dev/sda1 <<EOF
 copy-out /data/test-copy-original test-copy-copy
 EOF
 

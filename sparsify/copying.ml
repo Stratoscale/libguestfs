@@ -1,5 +1,5 @@
 (* virt-sparsify
- * Copyright (C) 2011-2015 Red Hat Inc.
+ * Copyright (C) 2011-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,7 +60,7 @@ let run indisk outdisk check_tmpdir compress convert
       | Some fmt -> fmt    (* user specified input format, use that *)
       | None ->
         (* Don't know, so we must autodetect. *)
-        match (new G.guestfs ())#disk_format indisk  with
+        match (open_guestfs ())#disk_format indisk  with
         | "unknown" ->
           error (f_"cannot detect input disk format; use the --format parameter")
         | fmt -> fmt in
@@ -79,9 +79,7 @@ let run indisk outdisk check_tmpdir compress convert
       let file = String.sub file 9 (String.length file - 9) in
       if not (Sys.file_exists file) then
         error (f_"--tmp prebuilt:file: %s: file does not exist") file;
-      let g = new G.guestfs () in
-      if trace () then g#set_trace true;
-      if verbose () then g#set_verbose true;
+      let g = open_guestfs () in
       if g#disk_format file <> "qcow2" then
         error (f_"--tmp prebuilt:file: %s: file format is not qcow2") file;
       if not (g#disk_has_backing_file file) then
@@ -97,10 +95,9 @@ let run indisk outdisk check_tmpdir compress convert
   | Prebuilt_file _ -> ()
   | Directory tmpdir ->
     (* Get virtual size of the input disk. *)
-    let virtual_size = (new G.guestfs ())#disk_virtual_size indisk in
-    if verbose () then
-      printf "input disk virtual size is %Ld bytes (%s)\n%!"
-             virtual_size (human_size virtual_size);
+    let virtual_size = (open_guestfs ())#disk_virtual_size indisk in
+    debug "input disk virtual size is %Ld bytes (%s)"
+          virtual_size (human_size virtual_size);
 
     let print_warning () =
       let free_space = statvfs_free_space tmpdir in
@@ -153,9 +150,7 @@ You can ignore this warning or change it to a hard failure using the
 
     (* Create 'tmp' with the indisk as the backing file. *)
     let create tmp =
-      let g = new G.guestfs () in
-      if trace () then g#set_trace true;
-      if verbose () then g#set_verbose true;
+      let g = open_guestfs () in
       g#disk_create
         ~backingfile:indisk ?backingformat:format ~compat:"1.1"
         tmp "qcow2" Int64.minus_one
@@ -180,9 +175,7 @@ You can ignore this warning or change it to a hard failure using the
 
   (* Connect to libguestfs. *)
   let g =
-    let g = new G.guestfs () in
-    if trace () then g#set_trace true;
-    if verbose () then g#set_verbose true;
+    let g = open_guestfs () in
 
     (* Note that the temporary overlay disk is always qcow2 format. *)
     g#add_drive ~format:"qcow2" ~readonly:false ~cachemode:"unsafe" overlaydisk;
@@ -333,9 +326,7 @@ You can ignore this warning or change it to a hard failure using the
       | None -> ""
       | Some option -> " -o " ^ quote option)
       (quote overlaydisk) (quote (qemu_input_filename outdisk)) in
-  if verbose () then
-    printf "%s\n%!" cmd;
-  if Sys.command cmd <> 0 then
+  if shell_command cmd <> 0 then
     error (f_"external command failed: %s") cmd;
 
   (* Finished. *)

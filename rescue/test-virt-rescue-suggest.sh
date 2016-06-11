@@ -19,7 +19,7 @@
 export LANG=C
 set -e
 
-guest=../tests/guests/fedora.img
+guest=../test-data/phony-guests/fedora.img
 
 if [ ! -s "$guest" ]; then
     echo "$0: test skipped because $guest does not exist or is an empty file"
@@ -28,7 +28,7 @@ fi
 
 rm -f virt-rescue-suggest.out
 
-$VG virt-rescue --suggest "$guest" |
+$VG virt-rescue --suggest --format=raw -a "$guest" |
   grep '^mount ' |
   sed -r 's,/dev/[abce-ln-z]+d,/dev/sd,' > virt-rescue-suggest.out
 

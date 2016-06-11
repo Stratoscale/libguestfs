@@ -1,5 +1,5 @@
 # libguestfs
-# Copyright (C) 2009-2015 Red Hat Inc.
+# Copyright (C) 2009-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -43,7 +43,6 @@ check_PROGRAMS = test-error-messages
 test_error_messages_SOURCES = \
 	test-error-messages.c
 test_error_messages_CPPFLAGS = \
-	-DGUESTFS_PRIVATE=1 \
 	-I$(top_srcdir)/gnulib/lib -I$(top_builddir)/gnulib/lib \
 	-I$(top_srcdir)/src -I$(top_builddir)/src
 test_error_messages_CFLAGS = \

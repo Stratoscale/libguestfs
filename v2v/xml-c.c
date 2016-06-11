@@ -1,5 +1,5 @@
 /* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -350,6 +350,18 @@ v2v_xml_node_ptr_set_prop (value nodev, value namev, value valv)
     caml_invalid_argument ("node_ptr_set_prop: failed to set property");
 
   CAMLreturn (Val_unit);
+}
+
+value
+v2v_xml_node_ptr_unset_prop (value nodev, value namev)
+{
+  CAMLparam2 (nodev, namev);
+  xmlNodePtr node = (xmlNodePtr) nodev;
+  int r;
+
+  r = xmlUnsetProp (node, BAD_CAST String_val (namev));
+
+  CAMLreturn (r == 0 ? Val_true : Val_false);
 }
 
 value

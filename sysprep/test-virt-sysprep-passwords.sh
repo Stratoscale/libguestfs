@@ -26,7 +26,7 @@ if [ "$(guestfish get-backend)" = "uml" ]; then
     exit 77
 fi
 
-if [ ! -s ../tests/guests/fedora.img ]; then
+if [ ! -s ../test-data/phony-guests/fedora.img ]; then
     echo "$0: skipping test because there is no phony Fedora test image"
     exit 77
 fi
@@ -37,7 +37,7 @@ fi
 rm -f passwords.qcow2 password
 guestfish -- \
     disk-create passwords.qcow2 qcow2 -1 \
-      backingfile:../tests/guests/fedora.img backingformat:raw
+      backingfile:../test-data/phony-guests/fedora.img backingformat:raw
 
 guestfish -a passwords.qcow2 -i <<'EOF'
 write-append /etc/shadow "test01::15677:0:99999:7:::\n"
@@ -58,6 +58,7 @@ echo 123456 > password
 # Run virt-sysprep password operation.
 
 virt-sysprep \
+    --format qcow2 \
     -a passwords.qcow2 \
     --enable customize \
     --password test01:password:123456 \

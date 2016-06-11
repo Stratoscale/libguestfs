@@ -1,5 +1,5 @@
 # libguestfs virt-builder tool
-# Copyright (C) 2013-2015 Red Hat Inc.
+# Copyright (C) 2013-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -39,10 +39,21 @@ EXTRA_DIST = \
 	virt-index-validate.pod \
 	yajl_tests.ml
 
-CLEANFILES = *~ *.annot *.cmi *.cmo *.cmx *.cmxa *.o virt-builder
+CLEANFILES = \
+	*~ \
+	*.annot \
+	*.cache \
+	*.cmi \
+	*.cmo \
+	*.cmx \
+	*.cmxa \
+	*.log \
+	*.o \
+	virt-builder
 
 SOURCES_MLI = \
 	cache.mli \
+	cmdline.mli \
 	downloader.mli \
 	checksums.mli \
 	index.mli \
@@ -121,14 +132,14 @@ virt_builder_CFLAGS = \
 
 BOBJECTS = \
 	$(top_builddir)/mllib/libdir.cmo \
-	$(top_builddir)/mllib/config.cmo \
+	$(top_builddir)/mllib/guestfs_config.cmo \
 	$(top_builddir)/mllib/common_gettext.cmo \
 	$(top_builddir)/mllib/common_utils.cmo \
 	$(top_builddir)/mllib/fsync.cmo \
 	$(top_builddir)/mllib/planner.cmo \
 	$(top_builddir)/mllib/regedit.cmo \
 	$(top_builddir)/mllib/JSON.cmo \
-	$(top_builddir)/mllib/uRI.cmo \
+	$(top_builddir)/mllib/URI.cmo \
 	$(top_builddir)/mllib/mkdtemp.cmo \
 	$(top_builddir)/customize/customize_utils.cmo \
 	$(top_builddir)/customize/urandom.cmo \
@@ -205,35 +216,36 @@ endif
 # Manual pages and HTML files for the website.
 
 man_MANS += virt-builder.1
-noinst_DATA += $(top_builddir)/html/virt-builder.1.html
+noinst_DATA += $(top_builddir)/website/virt-builder.1.html
 
-virt-builder.1 $(top_builddir)/html/virt-builder.1.html: stamp-virt-builder.pod
+virt-builder.1 $(top_builddir)/website/virt-builder.1.html: stamp-virt-builder.pod
 
 stamp-virt-builder.pod: virt-builder.pod $(top_srcdir)/customize/customize-synopsis.pod $(top_srcdir)/customize/customize-options.pod
 	$(PODWRAPPER) \
 	  --man virt-builder.1 \
-	  --html $(top_builddir)/html/virt-builder.1.html \
+	  --html $(top_builddir)/website/virt-builder.1.html \
 	  --insert $(top_srcdir)/customize/customize-synopsis.pod:__CUSTOMIZE_SYNOPSIS__ \
 	  --insert $(top_srcdir)/customize/customize-options.pod:__CUSTOMIZE_OPTIONS__ \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 
-CLEANFILES += stamp-virt-builder.pod
+CLEANFILES += stamp-virt-builder.pod virt-builder.1
 
 # Tests.
 
 TESTS_ENVIRONMENT = $(top_builddir)/run --test
 
 disk_images := \
-	$(shell for f in debian fedora ubuntu windows; do if [ -s "../tests/guests/$$f.img" ]; then echo $$f.xz; fi; done) \
-	$(shell if [ -s "../tests/guests/fedora.img" ]; then echo fedora.qcow2 fedora.qcow2.xz; fi)
+	$(shell for f in debian fedora ubuntu windows; do if [ -s "../test-data/phony-guests/$$f.img" ]; then echo $$f.xz; fi; done) \
+	$(shell if [ -s "../test-data/phony-guests/fedora.img" ]; then echo fedora.qcow2 fedora.qcow2.xz; fi)
 
 CLEANFILES += *.qcow2 *.xz
 
 check_DATA = $(disk_images)
 
-fedora.qcow2: ../tests/guests/fedora.img
+fedora.qcow2: ../test-data/phony-guests/fedora.img
 	rm -f $@ $@-t
 	qemu-img convert -f raw -O qcow2 $< $@-t
 	mv $@-t $@
@@ -243,7 +255,7 @@ fedora.qcow2.xz: fedora.qcow2
 	xz --best -c $< > $@-t
 	mv $@-t $@
 
-%.xz: ../tests/guests/%.img
+%.xz: ../test-data/phony-guests/%.img
 	rm -f $@ $@-t
 	xz --best -c $< > $@-t
 	mv $@-t $@
@@ -272,7 +284,8 @@ yajl_tests_LINK = \
 
 TESTS = \
 	test-virt-builder-list.sh \
-	test-virt-index-validate.sh
+	test-virt-index-validate.sh \
+	$(SLOW_TESTS)
 check_PROGRAMS =
 
 if HAVE_YAJL
@@ -290,8 +303,10 @@ endif
 check-valgrind:
 	$(MAKE) VG="$(top_builddir)/run @VG@" check
 
+SLOW_TESTS = test-virt-builder-planner.sh
+
 check-slow:
-	$(MAKE) TESTS="test-virt-builder-planner.sh" check
+	$(MAKE) check TESTS="$(SLOW_TESTS)" SLOW=1
 
 # Dependencies.
 depend: .depend
@@ -320,7 +335,7 @@ repoconf_DATA = libguestfs.conf libguestfs.gpg \
 		opensuse.conf opensuse.gpg
 
 install-exec-hook:
-	$(LN_S) xdg/virt-builder $(DESTDIR)$(sysconfdir)/virt-builder
+	$(LN_S) -f xdg/virt-builder $(DESTDIR)$(sysconfdir)/virt-builder
 
 # Build a small C index validator program.
 bin_PROGRAMS += virt-index-validate
@@ -346,15 +361,16 @@ virt_index_validate_LDADD = \
 	../gnulib/lib/libgnu.la
 
 man_MANS += virt-index-validate.1
-noinst_DATA += $(top_builddir)/html/virt-index-validate.1.html
+noinst_DATA += $(top_builddir)/website/virt-index-validate.1.html
 
-virt-index-validate.1 $(top_builddir)/html/virt-index-validate.1.html: stamp-virt-index-validate.pod
+virt-index-validate.1 $(top_builddir)/website/virt-index-validate.1.html: stamp-virt-index-validate.pod
 
 stamp-virt-index-validate.pod: virt-index-validate.pod
 	$(PODWRAPPER) \
 	  --man virt-index-validate.1 \
-	  --html $(top_builddir)/html/virt-index-validate.1.html \
+	  --html $(top_builddir)/website/virt-index-validate.1.html \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 
@@ -362,7 +378,8 @@ CLEANFILES += \
 	index-parse.c \
 	index-parse.h \
 	index-scan.c \
-	stamp-virt-index-validate.pod
+	stamp-virt-index-validate.pod \
+	virt-index-validate.1
 
 if HAVE_OCAML
 # Automake-generated makefile has a rule ".y.c" but lacks a rule ".y.h".

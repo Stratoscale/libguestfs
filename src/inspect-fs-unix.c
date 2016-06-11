@@ -206,6 +206,8 @@ parse_os_release (guestfs_h *g, struct inspect_fs *fs, const char *filename)
         distro = OS_DISTRO_MAGEIA;
       else if (VALUE_IS ("opensuse"))
         distro = OS_DISTRO_OPENSUSE;
+      else if (VALUE_IS ("pld"))
+        distro = OS_DISTRO_PLD_LINUX;
       else if (VALUE_IS ("rhel"))
         distro = OS_DISTRO_RHEL;
       else if (VALUE_IS ("sles"))
@@ -1077,13 +1079,25 @@ check_architecture (guestfs_h *g, struct inspect_fs *fs)
   const char *binaries[] =
     { "/bin/bash", "/bin/ls", "/bin/echo", "/bin/rm", "/bin/sh" };
   size_t i;
-  char *arch;
+  char *arch = NULL;
 
   for (i = 0; i < sizeof binaries / sizeof binaries[0]; ++i) {
-    if (guestfs_is_file (g, binaries[i]) > 0) {
-      /* Ignore errors from file_architecture call. */
+    /* Allow symlinks when checking the binaries:,so in case they are
+     * relative ones (which can be resolved within the same partition),
+     * then we can check the architecture of their target.
+     */
+    if (guestfs_is_file_opts (g, binaries[i],
+                              GUESTFS_IS_FILE_OPTS_FOLLOWSYMLINKS, 1, -1) > 0) {
+      CLEANUP_FREE char *resolved = NULL;
+
+      /* Ignore errors from realpath and file_architecture calls. */
       guestfs_push_error_handler (g, NULL, NULL);
-      arch = guestfs_file_architecture (g, binaries[i]);
+      resolved = guestfs_realpath (g, binaries[i]);
+      /* If is_file above succeeded realpath should too, but better
+       * be safe than sorry.
+       */
+      if (resolved)
+        arch = guestfs_file_architecture (g, resolved);
       guestfs_pop_error_handler (g);
 
       if (arch) {
@@ -1315,10 +1329,16 @@ check_fstab (guestfs_h *g, struct inspect_fs *fs)
       continue;
 
     /* Resolve UUID= and LABEL= to the actual device. */
-    if (STRPREFIX (spec, "UUID="))
-      mountable = guestfs_findfs_uuid (g, &spec[5]);
-    else if (STRPREFIX (spec, "LABEL="))
-      mountable = guestfs_findfs_label (g, &spec[6]);
+    if (STRPREFIX (spec, "UUID=")) {
+      CLEANUP_FREE char *s = guestfs_int_shell_unquote (&spec[5]);
+      if (s == NULL) { perrorf (g, "guestfs_int_shell_unquote"); return -1; }
+      mountable = guestfs_findfs_uuid (g, s);
+    }
+    else if (STRPREFIX (spec, "LABEL=")) {
+      CLEANUP_FREE char *s = guestfs_int_shell_unquote (&spec[6]);
+      if (s == NULL) { perrorf (g, "guestfs_int_shell_unquote"); return -1; }
+      mountable = guestfs_findfs_label (g, s);
+    }
     /* Ignore "/.swap" (Pardus) and pseudo-devices like "tmpfs". */
     else if (STREQ (spec, "/dev/root") || (is_bsd && STREQ (mp, "/")))
       /* Resolve /dev/root to the current device.

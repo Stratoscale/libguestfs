@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,6 +17,9 @@
  *)
 
 open Printf
+
+open Common_gettext.Gettext
+open Common_utils
 
 (* Types.  See types.mli for documentation. *)
 
@@ -319,6 +322,12 @@ type mpstat = {
   mp_vfs : string;
 }
 
+let print_mpstat chan { mp_dev = dev; mp_path = path;
+                        mp_statvfs = s; mp_vfs = vfs } =
+  fprintf chan "mountpoint statvfs %s %s (%s):\n" dev path vfs;
+  fprintf chan "  bsize=%Ld blocks=%Ld bfree=%Ld bavail=%Ld\n"
+    s.Guestfs.bsize s.Guestfs.blocks s.Guestfs.bfree s.Guestfs.bavail
+
 type guestcaps = {
   gcaps_block_bus : guestcaps_block_type;
   gcaps_net_bus : guestcaps_net_type;
@@ -379,6 +388,12 @@ let string_of_target_buses buses =
   string_of_target_bus_slots "ide" buses.target_ide_bus ^
   string_of_target_bus_slots "scsi" buses.target_scsi_bus
 
+type root_choice = AskRoot | SingleRoot | FirstRoot | RootDev of string
+
+type output_allocation = Sparse | Preallocated
+
+type vmtype = Desktop | Server
+
 class virtual input = object
   method virtual as_options : string
   method virtual source : unit -> source
@@ -391,11 +406,7 @@ class virtual output = object
   method virtual supported_firmware : target_firmware list
   method check_target_firmware (_ : guestcaps) (_ : target_firmware) = ()
   method check_target_free_space (_ : source) (_ : target list) = ()
-  method disk_create = (new Guestfs.guestfs ())#disk_create
+  method disk_create = (open_guestfs ())#disk_create
   method virtual create_metadata : source -> target list -> target_buses -> guestcaps -> inspect -> target_firmware -> unit
   method keep_serial_console = true
 end
-
-type output_allocation = Sparse | Preallocated
-
-type vmtype = Desktop | Server

@@ -1,5 +1,5 @@
 /* virt-p2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -116,9 +116,9 @@ print_config (struct config *config, FILE *fp)
 {
   size_t i;
 
-  fprintf (fp, "local version   .  %s\n", PACKAGE_VERSION);
-  fprintf (fp, "remote version  .  %d.%d.%d\n",
-           v2v_major, v2v_minor, v2v_release);
+  fprintf (fp, "local version   .  %s\n", PACKAGE_VERSION_FULL);
+  fprintf (fp, "remote version  .  %s\n",
+           v2v_version ? v2v_version : "unknown");
   fprintf (fp, "remote debugging   %s\n",
            config->verbose ? "true" : "false");
   fprintf (fp, "conversion server  %s\n",

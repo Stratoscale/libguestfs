@@ -35,7 +35,7 @@ rm -f inspect-fstab-1.qcow2 inspect-fstab.fstab inspect-fstab.output
 # and then inspect it.
 guestfish -- \
   disk-create inspect-fstab-1.qcow2 qcow2 -1 \
-    backingfile:../guests/fedora.img backingformat:raw
+    backingfile:../../test-data/phony-guests/fedora.img backingformat:raw
 
 cat <<'EOF' > inspect-fstab.fstab
 /dev/VG/Root / ext2 default 0 0
@@ -55,14 +55,14 @@ cat <<'EOF' > inspect-fstab.fstab
 /dev/disk/by-id/ata-QEMU_HARDDISK_QM00001-part3 /id3 ext2 default 0 0
 EOF
 
-guestfish -a inspect-fstab-1.qcow2 <<'EOF'
+guestfish --format=qcow2 -a inspect-fstab-1.qcow2 <<'EOF'
   run
   mount /dev/VG/Root /
   upload inspect-fstab.fstab /etc/fstab
 EOF
 
 # This will give a warning, but should not fail.
-guestfish -a inspect-fstab-1.qcow2 -i <<'EOF' | sort | $canonical > inspect-fstab.output
+guestfish --format=qcow2 -a inspect-fstab-1.qcow2 -i <<'EOF' | sort | $canonical > inspect-fstab.output
   inspect-get-mountpoints /dev/VG/Root
 EOF
 
@@ -87,7 +87,7 @@ cat <<'EOF' > inspect-fstab.fstab
 /dev/xvdg1 /boot ext2 default 0 0
 EOF
 
-guestfish -a inspect-fstab-1.qcow2 <<'EOF'
+guestfish --format=qcow2 -a inspect-fstab-1.qcow2 <<'EOF'
   run
   mount /dev/VG/Root /
   upload inspect-fstab.fstab /etc/fstab
@@ -118,7 +118,7 @@ cat <<'EOF' > inspect-fstab.fstab
 /dev/cciss/c1d3 /var ext2 default 0 0
 EOF
 
-guestfish -a inspect-fstab-1.qcow2 <<'EOF'
+guestfish --format=qcow2 -a inspect-fstab-1.qcow2 <<'EOF'
   run
   mount /dev/VG/Root /
   upload inspect-fstab.fstab /etc/fstab

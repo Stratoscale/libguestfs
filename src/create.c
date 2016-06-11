@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2012-2015 Red Hat Inc.
+ * Copyright (C) 2012-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -14,6 +14,12 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+/**
+ * APIs for creating empty disks.
+ *
+ * Mostly this consists of wrappers around the L<qemu-img(1)> program.
  */
 
 #include <config.h>
@@ -42,7 +48,6 @@
 
 static int disk_create_raw (guestfs_h *g, const char *filename, int64_t size, const struct guestfs_disk_create_argv *optargs);
 static int disk_create_qcow2 (guestfs_h *g, const char *filename, int64_t size, const char *backingfile, const struct guestfs_disk_create_argv *optargs);
-static char *qemu_escape_param (guestfs_h *g, const char *param);
 
 int
 guestfs_impl_disk_create (guestfs_h *g, const char *filename,
@@ -313,7 +318,7 @@ disk_create_qcow2 (guestfs_h *g, const char *orig_filename, int64_t size,
 
   /* -o parameter. */
   if (backingfile) {
-    CLEANUP_FREE char *p = qemu_escape_param (g, backingfile);
+    CLEANUP_FREE char *p = guestfs_int_qemu_escape_param (g, backingfile);
     guestfs_int_add_sprintf (g, &optionsv, "backing_file=%s", p);
   }
   if (backingformat)
@@ -344,22 +349,4 @@ disk_create_qcow2 (guestfs_h *g, const char *orig_filename, int64_t size,
   }
 
   return 0;
-}
-
-/* XXX Duplicated in launch-direct.c. */
-static char *
-qemu_escape_param (guestfs_h *g, const char *param)
-{
-  size_t i, len = strlen (param);
-  char *p, *ret;
-
-  ret = p = safe_malloc (g, len*2 + 1); /* max length of escaped name*/
-  for (i = 0; i < len; ++i) {
-    *p++ = param[i];
-    if (param[i] == ',')
-      *p++ = ',';
-  }
-  *p = '\0';
-
-  return ret;
 }

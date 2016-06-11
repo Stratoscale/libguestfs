@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -174,14 +174,14 @@ check_daemon_socket (guestfs_h *g)
 
   /* Read and process progress messages that happen during FileIn. */
   if (flag == GUESTFS_PROGRESS_FLAG) {
-    char buf[PROGRESS_MESSAGE_SIZE];
+    char mbuf[PROGRESS_MESSAGE_SIZE];
     guestfs_progress message;
 
-    n = g->conn->ops->read_data (g, g->conn, buf, PROGRESS_MESSAGE_SIZE);
+    n = g->conn->ops->read_data (g, g->conn, mbuf, PROGRESS_MESSAGE_SIZE);
     if (n <= 0) /* 0 or -1 */
       return n;
 
-    xdrmem_create (&xdr, buf, PROGRESS_MESSAGE_SIZE, XDR_DECODE);
+    xdrmem_create (&xdr, mbuf, PROGRESS_MESSAGE_SIZE, XDR_DECODE);
     xdr_guestfs_progress (&xdr, &message);
     xdr_destroy (&xdr);
 
@@ -289,19 +289,6 @@ guestfs_int_send (guestfs_h *g, int proc_nr,
   return serial;
 }
 
-static void
-fadvise_sequential (int fd)
-{
-#if defined(HAVE_POSIX_FADVISE) && defined(POSIX_FADV_SEQUENTIAL)
-  /* Since the fd might be a non-file, eg. /dev/stdout, just ignore
-   * this when it fails.  It's not clear from the man page, but the
-   * 'advice' parameter is NOT a bitmask.  You can only pass one
-   * parameter with each call.
-   */
-  ignore_value (posix_fadvise (fd, 0, 0, POSIX_FADV_SEQUENTIAL));
-#endif
-}
-
 static int send_file_chunk (guestfs_h *g, int cancel, const char *buf, size_t len);
 static int send_file_data (guestfs_h *g, const char *buf, size_t len);
 static int send_file_cancellation (guestfs_h *g);
@@ -328,7 +315,7 @@ guestfs_int_send_file (guestfs_h *g, const char *filename)
     return -1;
   }
 
-  fadvise_sequential (fd);
+  guestfs_int_fadvise_sequential (fd);
 
   /* Send file in chunked encoding. */
   while (!g->user_cancel) {
@@ -763,7 +750,7 @@ guestfs_int_recv_file (guestfs_h *g, const char *filename)
     goto cancel;
   }
 
-  fadvise_sequential (fd);
+  guestfs_int_fadvise_sequential (fd);
 
   /* Receive the file in chunked encoding. */
   while ((r = receive_file_data (g, &buf)) > 0) {

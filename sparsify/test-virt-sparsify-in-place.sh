@@ -1,6 +1,6 @@
 #!/bin/bash -
 # libguestfs virt-sparsify --in-place test script
-# Copyright (C) 2011-2015 Red Hat Inc.
+# Copyright (C) 2011-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -49,7 +49,7 @@ EOF
 
 size_before=$(du -s test-virt-sparsify-in-place.img | awk '{print $1}')
 
-$VG virt-sparsify --debug-gc --in-place test-virt-sparsify-in-place.img || {
+$VG virt-sparsify --debug-gc --in-place --format raw test-virt-sparsify-in-place.img || {
     if [ "$?" -eq 3 ]; then
         rm test-virt-sparsify-in-place.img
         echo "$0: discard not supported in virt-sparsify"

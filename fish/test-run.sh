@@ -18,4 +18,4 @@
 
 set -e
 
-$VG guestfish -a ../tests/guests/fedora.img run
+$VG guestfish --ro --format=raw -a ../test-data/phony-guests/fedora.img run

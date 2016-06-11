@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,8 @@ open Optgroups
 open Actions
 open Structs
 
+let generate_header = generate_header ~inputs:["generator/tests_c_api.ml"]
+
 (* Generate the C API tests. *)
 let rec generate_c_api_tests () =
   generate_header CStyle GPLv2plus;
@@ -41,6 +43,7 @@ let rec generate_c_api_tests () =
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #include \"guestfs.h\"
 #include \"guestfs-internal-frontend.h\"
@@ -335,6 +338,23 @@ and generate_test_perform name i test_name test =
     let seq, last = get_seq_last seq in
     List.iter (generate_test_command_call test_name) seq;
     generate_test_command_call test_name ~expect_error:true last
+
+  | TestRunOrUnsupported seq ->
+    pr "  /* TestRunOrUnsupported for %s (%d) */\n" name i;
+    let seq, last = get_seq_last seq in
+    List.iter (generate_test_command_call test_name) seq;
+    generate_test_command_call test_name ~expect_error:true ~do_return:false ~ret:"ret" last;
+    pr "  if (ret == -1) {\n";
+    pr "    if (guestfs_last_errno (g) == ENOTSUP) {\n";
+    pr "      skipped (\"%s\", \"last command %%s returned ENOTSUP\", \"%s\");\n"
+      test_name (List.hd last);
+    pr "      return 0;\n";
+    pr "    }\n";
+    pr "    fprintf (stderr, \"%%s: test failed: expected last command %%s to pass or fail with ENOTSUP, but it failed with %%d: %%s\\n\",\n";
+    pr "             \"%s\", \"%s\", guestfs_last_errno (g), guestfs_last_error (g));\n"
+      test_name (List.hd last);
+    pr "    return -1;\n";
+    pr "  }\n"
   );
 
   pr "  return 0;\n";
@@ -354,7 +374,7 @@ and generate_test_cleanup test_name cleanup =
  * variable named 'ret'.  If you expect to get an error then you should
  * set expect_error:true.
  *)
-and generate_test_command_call ?(expect_error = false) ?test ?ret test_name cmd=
+and generate_test_command_call ?(expect_error = false) ?(do_return = true) ?test ?ret test_name cmd=
   let ret = match ret with Some ret -> ret | None -> gensym "ret" in
 
   let name, args =
@@ -419,7 +439,8 @@ and generate_test_command_call ?(expect_error = false) ?test ?ret test_name cmd=
     | DeviceList _, "", sym ->
       pr "  const char *const %s[1] = { NULL };\n" sym
     | StringList _, arg, sym
-    | DeviceList _, arg, sym ->
+    | DeviceList _, arg, sym
+    | FilenameList _, arg, sym ->
       let strs = string_split " " arg in
       iteri (
         fun i str ->
@@ -527,7 +548,9 @@ and generate_test_command_call ?(expect_error = false) ?test ?ret test_name cmd=
     | GUID _, _, sym -> pr ", %s" sym
     | BufferIn _, _, sym -> pr ", %s, %s_size" sym sym
     | FileOut _, arg, _ -> pr ", \"%s\"" (c_quote arg)
-    | StringList _, _, sym | DeviceList _, _, sym -> pr ", (char **) %s" sym
+    | StringList _, _, sym | DeviceList _, _, sym
+    | FilenameList _, _, sym ->
+      pr ", (char **) %s" sym
     | Int _, arg, _ ->
       let i =
         try int_of_string arg
@@ -558,7 +581,11 @@ and generate_test_command_call ?(expect_error = false) ?test ?ret test_name cmd=
   if expect_error then
     pr "  guestfs_pop_error_handler (g);\n";
 
-  (match errcode_of_ret style_ret, expect_error with
+  let ret_errcode =
+    if do_return then errcode_of_ret style_ret
+    else `CannotReturnError in
+
+  (match ret_errcode, expect_error with
   | `CannotReturnError, _ -> ()
   | `ErrorIsMinusOne, false ->
     pr "  if (%s == -1)\n" ret;

@@ -1,5 +1,5 @@
 (* virt-resize
- * Copyright (C) 2010-2015 Red Hat Inc.
+ * Copyright (C) 2010-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -53,7 +53,6 @@ type partition = {
   p_target_partnum : int;        (* TARGET partition number. *)
   p_target_start : int64;        (* TARGET partition start (sector num). *)
   p_target_end : int64;          (* TARGET partition end (sector num). *)
-  p_mbr_p_type : partition_type  (* Partiton Type (master/extended/logical) *)
 }
 and partition_content =
   | ContentUnknown               (* undetermined *)
@@ -70,11 +69,6 @@ and partition_id =
   | No_ID                        (* No identifier. *)
   | MBR_ID of int                (* MBR ID. *)
   | GPT_Type of string           (* GPT UUID. *)
-and partition_type =
-  | PrimaryPartition
-  | ExtendedPartition
-  | LogicalPartition
-  | NoTypePartition
 
 let rec debug_partition ?(sectsize=512L) p =
   printf "%s:\n" p.p_name;
@@ -103,8 +97,7 @@ let rec debug_partition ?(sectsize=512L) p =
     (match p.p_guid with
     | Some guid -> guid
     | None -> "(none)"
-    );
-  printf "\tpartition type: %s\n" (string_of_partition_type p.p_mbr_p_type)
+    )
 and string_of_partition_content = function
   | ContentUnknown -> "unknown data"
   | ContentPV sz -> sprintf "LVM PV (%Ld bytes)" sz
@@ -115,11 +108,6 @@ and string_of_partition_content_no_size = function
   | ContentPV _ -> "LVM PV"
   | ContentFS (fs, _) -> sprintf "filesystem %s" fs
   | ContentExtendedPartition -> "extended partition"
-and string_of_partition_type = function
-  | PrimaryPartition -> "primary"
-  | ExtendedPartition -> "extended"
-  | LogicalPartition -> "logical"
-  | NoTypePartition -> "none"
 
 (* Data structure describing LVs on the source disk.  This is only
  * used if the user gave the --lv-expand option.
@@ -149,13 +137,18 @@ let string_of_expand_content_method = function
   | BtrfsFilesystemResize -> s_"btrfs-filesystem-resize"
   | XFSGrowFS -> s_"xfs_growfs"
 
+type unknown_filesystems_mode =
+  | UnknownFsIgnore
+  | UnknownFsWarn
+  | UnknownFsError
+
 (* Main program. *)
 let main () =
   let infile, outfile, align_first, alignment, copy_boot_loader,
     deletes,
     dryrun, expand, expand_content, extra_partition, format, ignores,
     lv_expands, machine_readable, ntfsresize_force, output_format,
-    resizes, resizes_force, shrink, sparse =
+    resizes, resizes_force, shrink, sparse, unknown_fs_mode =
 
     let add xs s = xs := s :: !xs in
 
@@ -187,6 +180,7 @@ let main () =
       else shrink := s
     in
     let sparse = ref true in
+    let unknown_fs_mode = ref "warn" in
 
     let ditto = " -\"-" in
     let argspec = [
@@ -215,6 +209,8 @@ let main () =
       "--resize-force", Arg.String (add resizes_force), s_"part=size" ^ " " ^ s_"Forcefully resize partition";
       "--shrink",  Arg.String set_shrink,     s_"part" ^ " " ^ s_"Shrink partition";
       "--no-sparse", Arg.Clear sparse,        " " ^ s_"Turn off sparse copying";
+      "--unknown-filesystems", Arg.Set_string unknown_fs_mode,
+                                              s_"ignore|warn|error" ^ " " ^ s_"Behaviour on expand unknown filesystems (default: warn)";
     ] in
     let argspec = set_standard_options argspec in
     let disks = ref [] in
@@ -253,6 +249,7 @@ read the man page virt-resize(1).
     let resizes_force = List.rev !resizes_force in
     let shrink = match !shrink with "" -> None | str -> Some str in
     let sparse = !sparse in
+    let unknown_fs_mode = !unknown_fs_mode in
 
     if alignment < 1 then
       error (f_"alignment cannot be < 1");
@@ -265,6 +262,14 @@ read the man page virt-resize(1).
       | "auto" -> `Auto
       | _ ->
         error (f_"unknown --align-first option: use never|always|auto") in
+
+    let unknown_fs_mode =
+      match unknown_fs_mode with
+      | "ignore" -> UnknownFsIgnore
+      | "warn" -> UnknownFsWarn
+      | "error" -> UnknownFsError
+      | _ ->
+        error (f_"unknown --unknown-filesystems: use ignore|warn|error") in
 
     (* No arguments and machine-readable mode?  Print out some facts
      * about what this binary supports.  We only need to print out new
@@ -279,7 +284,7 @@ read the man page virt-resize(1).
       printf "alignment\n";
       printf "align-first\n";
       printf "infile-uri\n";
-      let g = new G.guestfs () in
+      let g = open_guestfs () in
       g#add_drive "/dev/null";
       g#launch ();
       if g#feature_available [| "ntfsprogs"; "ntfs3g" |] then
@@ -315,7 +320,7 @@ read the man page virt-resize(1).
     deletes,
     dryrun, expand, expand_content, extra_partition, format, ignores,
     lv_expands, machine_readable, ntfsresize_force, output_format,
-    resizes, resizes_force, shrink, sparse in
+    resizes, resizes_force, shrink, sparse, unknown_fs_mode in
 
   (* Default to true, since NTFS/btrfs/XFS support are usually available. *)
   let ntfs_available = ref true in
@@ -324,9 +329,7 @@ read the man page virt-resize(1).
 
   (* Add in and out disks to the handle and launch. *)
   let connect_both_disks () =
-    let g = new G.guestfs () in
-    if trace () then g#set_trace true;
-    if verbose () then g#set_verbose true;
+    let g = open_guestfs () in
     let _, { URI.path = path; protocol = protocol;
              server = server; username = username;
              password = password } = infile in
@@ -365,10 +368,8 @@ read the man page virt-resize(1).
     let sectsize = Int64.of_int (g#blockdev_getss "/dev/sdb") in
     let insize = g#blockdev_getsize64 "/dev/sda" in
     let outsize = g#blockdev_getsize64 "/dev/sdb" in
-    if verbose () then (
-      printf "%s size %Ld bytes\n" (fst infile) insize;
-      printf "%s size %Ld bytes\n" outfile outsize
-    );
+    debug "%s size %Ld bytes" (fst infile) insize;
+    debug "%s size %Ld bytes" outfile outsize;
     sectsize, insize, outsize in
 
   let max_bootloader =
@@ -395,7 +396,7 @@ read the man page virt-resize(1).
   (* Get the source partition type. *)
   let parttype, parttype_string =
     let pt = g#part_get_parttype "/dev/sda" in
-    if verbose () then printf "partition table type: %s\n%!" pt;
+    debug "partition table type: %s" pt;
 
     match pt with
     | "msdos" -> MBR, "msdos"
@@ -438,8 +439,16 @@ read the man page virt-resize(1).
     | MBR_ID _ | GPT_Type _ | No_ID -> false
   in
 
-  let find_partitions () =
+  let partitions : partition list =
     let parts = Array.to_list (g#part_list "/dev/sda") in
+
+    if List.length parts = 0 then
+      error (f_"the source disk has no partitions");
+
+    (* Filter out logical partitions.  See note above. *)
+    let parts =
+        List.filter (fun p -> parttype <> MBR || p.G.part_num <= 4_l)
+        parts in
 
     let partitions =
       List.map (
@@ -467,27 +476,18 @@ read the man page virt-resize(1).
             | GPT ->
               try Some (g#part_get_gpt_guid "/dev/sda" part_num)
               with G.Error _ -> None in
-          let mbr_part_type =
-            let mbr_part_type_str = g#part_get_mbr_part_type "/dev/sda" part_num in
-            match mbr_part_type_str with
-            | "primary" -> PrimaryPartition
-            | "extended" -> ExtendedPartition
-            | "logical" -> LogicalPartition
-            | str -> NoTypePartition
-          in
 
           { p_name = name; p_part = part;
             p_bootable = bootable; p_id = id; p_type = typ;
-            p_label = label; p_guid = guid; p_mbr_p_type = mbr_part_type;
+            p_label = label; p_guid = guid;
             p_operation = OpCopy; p_target_partnum = 0;
             p_target_start = 0L; p_target_end = 0L }
       ) parts in
 
-    (* Filter out logical partitions.  See note above. *)
-    let partitions =
-      (* for GPT, all partitions are regarded as Primary Partition,
-       * e.g. there is no Extended Partition or Logical Partition. *)
-      List.filter (fun p -> parttype <> MBR || p.p_mbr_p_type <> LogicalPartition) partitions in
+    if verbose () then (
+      eprintf "%d partitions found\n" (List.length partitions);
+      List.iter debug_partition partitions
+    );
 
     (* Check content isn't larger than partitions.  If it is then
      * something has gone wrong and we shouldn't continue.  Old
@@ -519,13 +519,6 @@ read the man page virt-resize(1).
     loop 0L partitions;
 
     partitions in
-
-  let partitions = find_partitions () in
-
-  if verbose () then (
-    printf "%d partitions found\n" (List.length partitions);
-    List.iter (debug_partition ~sectsize) partitions
-    );
 
   (* Build a data structure describing LVs on the source disk. *)
   let lvs =
@@ -751,9 +744,8 @@ read the man page virt-resize(1).
 
     let surplus = outsize -^ (required +^ overhead) in
 
-    if verbose () then
-      printf "calculate surplus: outsize=%Ld required=%Ld overhead=%Ld surplus=%Ld\n%!"
-        outsize required overhead surplus;
+    debug "calculate surplus: outsize=%Ld required=%Ld overhead=%Ld surplus=%Ld"
+          outsize required overhead surplus;
 
     surplus
   in
@@ -765,8 +757,7 @@ read the man page virt-resize(1).
   if expand <> None || shrink <> None then (
     let surplus = calculate_surplus () in
 
-    if verbose () then
-      printf "surplus before --expand or --shrink: %Ld\n" surplus;
+    debug "surplus before --expand or --shrink: %Ld" surplus;
 
     (match expand with
      | None -> ()
@@ -820,6 +811,50 @@ read the man page virt-resize(1).
             name (fst infile) in
       lv.lv_operation <- LVOpExpand
   ) lv_expands;
+
+  (* In case we need to error out on unknown/unhandled filesystems,
+   * iterate on what we need to resize/expand.
+   *)
+  (match unknown_fs_mode with
+  | UnknownFsIgnore -> ()
+  | UnknownFsWarn -> ()
+  | UnknownFsError ->
+    List.iter (
+      fun p ->
+        match p.p_operation with
+        | OpCopy
+        | OpIgnore
+        | OpDelete -> ()
+        | OpResize _ ->
+          if not (can_expand_content p.p_type) then (
+            (match p.p_type with
+            | ContentUnknown
+            | ContentPV _
+            | ContentExtendedPartition -> ()
+            | ContentFS (fs, _) ->
+              error (f_"unknown/unavailable method for expanding the %s filesystem on %s")
+                fs p.p_name
+            );
+          )
+    ) partitions;
+
+    List.iter (
+      fun lv ->
+        match lv.lv_operation with
+        | LVOpNone -> ()
+        | LVOpExpand ->
+          if not (can_expand_content lv.lv_type) then (
+            (match lv.lv_type with
+            | ContentUnknown
+            | ContentPV _
+            | ContentExtendedPartition -> ()
+            | ContentFS (fs, _) ->
+              error (f_"unknown/unavailable method for expanding the %s filesystem on %s")
+                fs lv.lv_name;
+            );
+          )
+    ) lvs;
+  );
 
   (* Print a summary of what we will do. *)
   flush stderr;
@@ -1026,9 +1061,8 @@ read the man page virt-resize(1).
     | `Always, _
     | `Auto, true -> true in
 
-  if verbose () then
-    printf "align_first_partition_and_fix_bootloader = %b\n%!"
-      align_first_partition_and_fix_bootloader;
+  debug "align_first_partition_and_fix_bootloader = %b"
+        align_first_partition_and_fix_bootloader;
 
   (* Repartition the target disk. *)
 
@@ -1037,11 +1071,11 @@ read the man page virt-resize(1).
    * the final list just contains partitions that need to be created
    * on the target.
    *)
-  let rec calculate_target_partitions partnum start ~create_surplus = function
+  let partitions =
+    let rec loop partnum start = function
     | p :: ps ->
       (match p.p_operation with
-      | OpDelete ->
-        calculate_target_partitions partnum start ~create_surplus ps (* skip p *)
+      | OpDelete -> loop partnum start ps (* skip p *)
 
       | OpIgnore | OpCopy ->          (* same size *)
         (* Size in sectors. *)
@@ -1050,13 +1084,11 @@ read the man page virt-resize(1).
         let end_ = start +^ size in
         let next = roundup64 end_ alignment in
 
-        if verbose () then
-          printf "target partition %d: ignore or copy: start=%Ld end=%Ld\n%!"
-            partnum start (end_ -^ 1L);
+        debug "target partition %d: ignore or copy: start=%Ld end=%Ld"
+              partnum start (end_ -^ 1L);
 
         { p with p_target_start = start; p_target_end = end_ -^ 1L;
-          p_target_partnum = partnum } ::
-          calculate_target_partitions (partnum+1) next ~create_surplus ps
+          p_target_partnum = partnum } :: loop (partnum+1) next ps
 
       | OpResize newsize ->           (* resized partition *)
         (* New size in sectors. *)
@@ -1065,18 +1097,16 @@ read the man page virt-resize(1).
         let next = start +^ size in
         let next = roundup64 next alignment in
 
-        if verbose () then
-          printf "target partition %d: resize: newsize=%Ld start=%Ld end=%Ld\n%!"
-            partnum newsize start (next -^ 1L);
+        debug "target partition %d: resize: newsize=%Ld start=%Ld end=%Ld"
+              partnum newsize start (next -^ 1L);
 
         { p with p_target_start = start; p_target_end = next -^ 1L;
-          p_target_partnum = partnum } ::
-          calculate_target_partitions (partnum+1) next ~create_surplus ps
+          p_target_partnum = partnum } :: loop (partnum+1) next ps
       )
 
     | [] ->
       (* Create the surplus partition if there is room for it. *)
-      if create_surplus && extra_partition && surplus >= min_extra_partition then (
+      if extra_partition && surplus >= min_extra_partition then (
         [ {
           (* Since this partition has no source, this data is
            * meaningless and not used since the operation is
@@ -1091,15 +1121,12 @@ read the man page virt-resize(1).
           (* Target information is meaningful. *)
           p_operation = OpIgnore;
           p_target_partnum = partnum;
-          p_target_start = start; p_target_end = ~^ 64L;
-          p_mbr_p_type = NoTypePartition
+          p_target_start = start; p_target_end = ~^ 64L
         } ]
       )
       else
-        []
-  in
+        [] in
 
-  let partitions =
     (* Choose the alignment of the first partition based on the
      * '--align-first' option.  Old virt-resize used to always align this
      * to 64 sectors, but this causes boot failures unless we are able to
@@ -1112,27 +1139,40 @@ read the man page virt-resize(1).
         (* Preserve the existing start, but convert to sectors. *)
         (List.hd partitions).p_part.G.part_start /^ sectsize in
 
-    calculate_target_partitions 1 start ~create_surplus:true partitions in
+    loop 1 start partitions in
 
   if verbose () then (
     printf "After calculate target partitions:\n";
     List.iter (debug_partition ~sectsize) partitions
   );
 
-  let mbr_part_type x =
-    match parttype, x.p_part.G.part_num <= 4_l, x.p_type with
-    (* for GPT, all partitions are regarded as Primary Partition. *)
-    | GPT, _, _ -> "primary"
-    | MBR, true, (ContentUnknown|ContentPV _|ContentFS _) -> "primary"
-    | MBR, true, ContentExtendedPartition -> "extended"
-    | MBR, false, _ -> "logical"
-  in
-
   (* Now partition the target disk. *)
   List.iter (
     fun p ->
-      g#part_add "/dev/sdb" (mbr_part_type p) p.p_target_start p.p_target_end
+      g#part_add "/dev/sdb" "primary" p.p_target_start p.p_target_end
   ) partitions;
+
+  (* Set bootable and MBR IDs.  Do this *before* copying over the data,
+   * because the rewritten sfdisk "helpfully" overwrites the partition
+   * table in the first sector of an extended partition if a partition
+   * is changed from primary to extended.  Thus we need to set the
+   * MBR ID before doing the copy so sfdisk doesn't corrupt things.
+   *)
+  let set_partition_bootable_and_id p =
+      if p.p_bootable then
+        g#part_set_bootable "/dev/sdb" p.p_target_partnum true;
+
+      may (g#part_set_name "/dev/sdb" p.p_target_partnum) p.p_label;
+      may (g#part_set_gpt_guid "/dev/sdb" p.p_target_partnum) p.p_guid;
+
+      match parttype, p.p_id with
+      | GPT, GPT_Type gpt_type ->
+        g#part_set_gpt_type "/dev/sdb" p.p_target_partnum gpt_type
+      | MBR, MBR_ID mbr_id ->
+        g#part_set_mbr_id "/dev/sdb" p.p_target_partnum mbr_id
+      | GPT, (No_ID|MBR_ID _) | MBR, (No_ID|GPT_Type _) -> ()
+  in
+  List.iter set_partition_bootable_and_id partitions;
 
   (* Copy over the data. *)
   let copy_partition p =
@@ -1171,40 +1211,13 @@ read the man page virt-resize(1).
             *)
            let srcoffset = p.p_part.G.part_start in
            let destoffset = p.p_target_start *^ 512L in
-           g#copy_device_to_device ~srcoffset ~destoffset ~size:copysize "/dev/sda" "/dev/sdb"
+           g#copy_device_to_device ~srcoffset ~destoffset ~size:copysize
+                                   ~sparse
+                                   "/dev/sda" "/dev/sdb"
         )
       | OpIgnore | OpDelete -> ()
   in
   List.iter copy_partition partitions;
-
-  (* Set bootable and MBR IDs.  Do this *after* copying over the data,
-   * so that we can magically change the primary partition to an extended
-   * partition if necessary.
-   *)
-  let set_partition_bootable_and_id p =
-      if p.p_bootable then
-        g#part_set_bootable "/dev/sdb" p.p_target_partnum true;
-
-      (match p.p_label with
-      | Some label ->
-        g#part_set_name "/dev/sdb" p.p_target_partnum label;
-      | None -> ()
-      );
-
-      (match p.p_guid with
-      | Some guid ->
-        g#part_set_gpt_guid "/dev/sdb" p.p_target_partnum guid;
-      | None -> ()
-      );
-
-      match parttype, p.p_id with
-      | GPT, GPT_Type gpt_type ->
-        g#part_set_gpt_type "/dev/sdb" p.p_target_partnum gpt_type
-      | MBR, MBR_ID mbr_id ->
-        g#part_set_mbr_id "/dev/sdb" p.p_target_partnum mbr_id
-      | GPT, (No_ID|MBR_ID _) | MBR, (No_ID|GPT_Type _) -> ()
-  in
-  List.iter set_partition_bootable_and_id partitions;
 
   (* Fix the bootloader if we aligned the first partition. *)
   if align_first_partition_and_fix_bootloader then (
@@ -1229,7 +1242,7 @@ read the man page virt-resize(1).
 
         if verbose () then (
           let old_hidden = int_of_le32 (g#pread_device target 4 0x1c_L) in
-          printf "old hidden sectors value: 0x%Lx\n%!" old_hidden
+          debug "old hidden sectors value: 0x%Lx" old_hidden
         );
 
         let new_hidden = le32_of_int start in
@@ -1268,9 +1281,7 @@ read the man page virt-resize(1).
       g#shutdown ();
       g#close ();
 
-      let g = new G.guestfs () in
-      if trace () then g#set_trace true;
-      if verbose () then g#set_verbose true;
+      let g = open_guestfs () in
       (* The output disk is being created, so use cache=unsafe here. *)
       g#add_drive ?format:output_format ~readonly:false ~cachemode:"unsafe"
         outfile;

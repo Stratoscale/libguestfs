@@ -1,5 +1,5 @@
 /* libguestfs - the guestfsd daemon
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -103,6 +103,89 @@ convert_lvm_output (char *out, const char *prefix)
   return ret.argv;
 }
 
+/* Filter a colon-separated output of
+ *   lvs -o lv_attr,vg_name,lv_name
+ * removing thin layouts, and building the device path as we expect it.
+ *
+ * This is used only when lvm has no -S.
+ */
+static char **
+filter_convert_old_lvs_output (char *out)
+{
+  char *p, *pend;
+  DECLARE_STRINGSBUF (ret);
+
+  p = out;
+  while (p) {
+    size_t len;
+    char *saveptr;
+    char *lv_attr, *vg_name, *lv_name;
+
+    pend = strchr (p, '\n');	/* Get the next line of output. */
+    if (pend) {
+      *pend = '\0';
+      pend++;
+    }
+
+    while (*p && c_isspace (*p))	/* Skip any leading whitespace. */
+      p++;
+
+    /* Sigh, skip trailing whitespace too.  "pvs", I'm looking at you. */
+    len = strlen (p)-1;
+    while (*p && c_isspace (p[len]))
+      p[len--] = '\0';
+
+    if (!*p) {			/* Empty line?  Skip it. */
+    skip_line:
+      p = pend;
+      continue;
+    }
+
+    lv_attr = strtok_r (p, ":", &saveptr);
+    if (!lv_attr)
+      goto skip_line;
+
+    vg_name = strtok_r (NULL, ":", &saveptr);
+    if (!vg_name)
+      goto skip_line;
+
+    lv_name = strtok_r (NULL, ":", &saveptr);
+    if (!lv_name)
+      goto skip_line;
+
+    /* Ignore thin layouts (RHBZ#1278878). */
+    if (lv_attr[0] == 't')
+      goto skip_line;
+
+    /* Ignore activationskip (RHBZ#1306666). */
+    if (strlen (lv_attr) >= 10 && lv_attr[9] == 'k')
+      goto skip_line;
+
+    /* Ignore "unknown device" message (RHBZ#1054761). */
+    if (STRNEQ (p, "unknown device")) {
+      char buf[256];
+
+      snprintf (buf, sizeof buf, "/dev/%s/%s", vg_name, lv_name);
+      if (add_string (&ret, buf) == -1) {
+        free (out);
+        return NULL;
+      }
+    }
+
+    p = pend;
+  }
+
+  free (out);
+
+  if (ret.size > 0)
+    sort_strings (ret.argv, ret.size);
+
+  if (end_stringsbuf (&ret) == -1)
+    return NULL;
+
+  return ret.argv;
+}
+
 char **
 do_pvs (void)
 {
@@ -139,24 +222,72 @@ do_vgs (void)
   return convert_lvm_output (out, NULL);
 }
 
+/* Check whether lvs has -S to filter its output.
+ * It is available only in lvm2 >= 2.02.107.
+ */
+static int
+test_lvs_has_S_opt (void)
+{
+  static int result = -1;
+  if (result != -1)
+    return result;
+
+  CLEANUP_FREE char *out = NULL;
+  CLEANUP_FREE char *err = NULL;
+
+  int r = command (&out, &err, str_lvm, "lvs", "--help", NULL);
+  if (r == -1) {
+    reply_with_error ("lvm lvs --help: %s", err);
+    return -1;
+  }
+
+  if (strstr (out, "-S") == NULL)
+    result = 0;
+  else
+    result = 1;
+
+  return result;
+}
+
 char **
 do_lvs (void)
 {
   char *out;
   CLEANUP_FREE char *err = NULL;
   int r;
+  int has_S = test_lvs_has_S_opt ();
 
-  r = command (&out, &err,
-               str_lvm, "lvs",
-               "-o", "vg_name,lv_name", "--noheadings",
-               "--separator", "/", NULL);
-  if (r == -1) {
-    reply_with_error ("%s", err);
-    free (out);
+  if (has_S < 0)
     return NULL;
-  }
 
-  return convert_lvm_output (out, "/dev/");
+  if (has_S > 0) {
+    r = command (&out, &err,
+                 str_lvm, "lvs",
+                 "-o", "vg_name,lv_name",
+                 "-S", "lv_role=public && lv_active=active",
+                 "--noheadings",
+                 "--separator", "/", NULL);
+    if (r == -1) {
+      reply_with_error ("%s", err);
+      free (out);
+      return NULL;
+    }
+
+    return convert_lvm_output (out, "/dev/");
+  } else {
+    r = command (&out, &err,
+                 str_lvm, "lvs",
+                 "-o", "lv_attr,vg_name,lv_name",
+                 "--noheadings",
+                 "--separator", ":", NULL);
+    if (r == -1) {
+      reply_with_error ("%s", err);
+      free (out);
+      return NULL;
+    }
+
+    return filter_convert_old_lvs_output (out);
+  }
 }
 
 /* These were so complex to implement that I ended up auto-generating
@@ -215,7 +346,7 @@ do_vgcreate (const char *volgroup, char *const *physvols)
   argv[0] = str_lvm;
   argv[1] = "vgcreate";
   argv[2] = volgroup;
-  for (i = 3; i <= argc; ++i)
+  for (i = 3; i < argc+1; ++i)
     argv[i] = physvols[i-3];
 
   r = commandv (NULL, &err, (const char * const*) argv);
@@ -522,7 +653,7 @@ do_vg_activate (int activate, char *const *volgroups)
   argv[1] = "vgchange";
   argv[2] = "-a";
   argv[3] = activate ? "y" : "n";
-  for (i = 4; i <= argc; ++i)
+  for (i = 4; i < argc+1; ++i)
     argv[i] = volgroups[i-4];
 
   r = commandv (NULL, &err, (const char * const*) argv);

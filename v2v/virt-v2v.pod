@@ -15,6 +15,8 @@ virt-v2v - Convert a guest to use KVM
 
  virt-v2v -i disk disk.img -o glance
 
+ virt-v2v -ic qemu:///system qemu_guest --in-place
+
 =head1 DESCRIPTION
 
 Virt-v2v converts guests from a foreign hypervisor to run on KVM.  It
@@ -75,6 +77,9 @@ booting the guest directly in qemu (mainly for testing).
 I<-o rhev> is used to write to a RHEV-M / oVirt target.  I<-o vdsm>
 is only used when virt-v2v runs under VDSM control.
 
+I<--in-place> instructs virt-v2v to customize the guest OS in the input
+virtual machine, instead of creating a new VM in the target hypervisor.
+
 =head1 EXAMPLES
 
 =head2 Convert from VMware vCenter server to local libvirt
@@ -117,7 +122,7 @@ run on OpenStack (only KVM-based OpenStack is supported), you can do:
 
  virt-v2v -i disk disk.img -o glance
 
-To control the name of the image in Glance, use the I<-on> option.
+See L</OUTPUT TO GLANCE> below.
 
 =head2 Convert disk image to disk image
 
@@ -250,6 +255,12 @@ Display help.
 
 See I<--network> below.
 
+=item B<--compressed>
+
+Write a compressed output file.  This is only allowed if the output
+format is qcow2 (see I<-of> below), and is equivalent to the I<-c>
+option of L<qemu-img(1)>.
+
 =item B<--dcpath> Folder/Datacenter
 
 B<NB:> You don't need to use this parameter if you have
@@ -333,6 +344,18 @@ For I<-i disk> only, this specifies the format of the input disk
 image.  For other input methods you should specify the input
 format in the metadata.
 
+=item B<--in-place>
+
+Do not create an output virtual machine in the target hypervisor.
+Instead, adjust the guest OS in the source VM to run in the input
+hypervisor.
+
+This mode is meant for integration with other toolsets, which take the
+responsibility of converting the VM configuration, providing for
+rollback in case of errors, transforming the storage, etc.
+
+Conflicts with all I<-o *> options.
+
 =item B<--machine-readable>
 
 This option is used to make the output more machine friendly
@@ -406,8 +429,7 @@ This is the same as I<-o local>.
 =item B<-o glance>
 
 Set the output method to OpenStack Glance.  In this mode the converted
-guest is uploaded to Glance.  You can control the image name by setting
-the I<-on> option.
+guest is uploaded to Glance.  See L</OUTPUT TO GLANCE> below.
 
 =item B<-o libvirt>
 
@@ -763,6 +785,26 @@ L<https://bugzilla.redhat.com/show_bug.cgi?id=244636>
 
 =head1 WINDOWS
 
+=head2 Windows E<ge> 8 Fast Startup is incompatible with virt-v2v
+
+Guests which use the Windows E<ge> 8 "Fast Startup" feature (or guests
+which are hibernated) cannot be converted with virt-v2v.  You will see
+an error:
+
+ virt-v2v: error: unable to mount the disk image for writing. This has
+ probably happened because Windows Hibernation or Fast Restart is being
+ used in this guest. You have to disable this (in the guest) in order
+ to use virt-v2v.
+
+As the message says, you need to boot the guest and disable the "Fast
+Startup" feature (Control Panel → Power Options → Choose what the
+power buttons do → Change settings that are currently unavailable →
+Turn on fast startup), and shut down the guest, and then you will be
+able to convert it.
+
+For more information, see:
+L<guestfs(3)/WINDOWS HIBERNATION AND WINDOWS 8 FAST STARTUP>.
+
 =head2 Boot failure: 0x0000007B
 
 This boot failure is caused by Windows being unable to find or load
@@ -923,9 +965,9 @@ I<--bridge> option instead.  For example:
 
 Virt-v2v is able to import guests from VMware vCenter Server.
 
-vCenter E<ge> 5.0 is required.  Virt-v2v B<cannot> import guests
-directly from an ESXi hypervisor.  If you don't have vCenter, using
-OVA is recommended instead (see L</INPUT FROM VMWARE OVA> below).
+vCenter E<ge> 5.0 is required.  If you don't have vCenter, using OVA
+is recommended instead (see L</INPUT FROM VMWARE OVA> below), or if
+that is not possible then see L</INPUT FROM VMWARE ESXi HYPERVISOR>.
 
 Virt-v2v uses libvirt for access to vCenter, and therefore the input
 mode should be I<-i libvirt>.  As this is the default, you don't need
@@ -1065,6 +1107,37 @@ In this case the output flags are set to write the converted guest to
 a temporary directory as this is just an example, but you can also
 write to libvirt or any other supported target.
 
+=head2 VCENTER: NON-ADMINISTRATOR ROLE
+
+Instead of using the vCenter Administrator role, you can create a
+custom non-administrator role to perform the conversion.  You will
+however need to give it a minimum set of permissions as follows:
+
+=over 4
+
+=item 1.
+
+Create a custom role in vCenter.
+
+=item 2.
+
+Enable (check) the following objects:
+
+ Datastore:
+  - Browse datastore
+  - Low level file operations
+ 
+ Sessions:
+  - Validate session
+ 
+ Virtual Machine:
+   Provisioning:
+     - Allow disk access
+     - Allow read-only disk access
+     - Guest Operating system management by VIX API
+
+=back
+
 =head1 INPUT FROM VMWARE OVA
 
 Virt-v2v is able to import guests from VMware's OVA (Open
@@ -1123,6 +1196,66 @@ directory containing the files:
 
  $ virt-v2v -i ova /path/to/files -o local -os /var/tmp
 
+=head1 INPUT FROM VMWARE ESXi HYPERVISOR
+
+Virt-v2v cannot access an ESXi hypervisor directly.  You should use
+the OVA method above (see L</INPUT FROM VMWARE OVA>) if possible, as
+it is much faster and requires much less disk space than the method
+described in this section.
+
+You can use the L<virt-v2v-copy-to-local(1)> tool to copy the guest
+off the hypervisor into a local file, and then convert it.
+
+=head2 ESXi: REMOVE VMWARE TOOLS FROM WINDOWS GUESTS
+
+For Windows guests, you should remove VMware tools before conversion.
+Although this is not strictly necessary, and the guest will still be
+able to run, if you don't do this then the converted guest will
+complain on every boot.  The tools cannot be removed after conversion
+because the uninstaller checks if it is running on VMware and refuses
+to start (which is also the reason that virt-v2v cannot remove them).
+
+This is not necessary for Linux guests, as virt-v2v is able to remove
+VMware tools.
+
+=head2 ESXi: URI
+
+The libvirt URI for VMware ESXi hypervisors will look something like this:
+
+ esx://root@esxi.example.com?no_verify=1
+
+The C<?no_verify=1> parameter disables TLS certificate checking.
+
+=head2 ESXi: TEST LIBVIRT CONNECTION TO ESXi HYPERVISOR
+
+Use the L<virsh(1)> command to test the URI and list the remote guests
+available:
+
+ $ virsh -c esx://root@esxi.example.com?no_verify=1 list --all
+ Enter root's password for esxi.example.com: ***
+  Id    Name                           State
+ ----------------------------------------------------
+  -     guest                          shut off
+
+=head2 ESXi: COPY THE GUEST TO THE LOCAL MACHINE
+
+Using the libvirt URI as the I<-ic> option, copy one of the guests to
+the local machine:
+
+ $ virt-v2v-copy-to-local -ic esx://root@esxi.example.com?no_verify=1 guest
+
+This creates F<guest.xml>, F<guest-disk1>, ...
+
+=head2 ESXi: DO THE VIRT-V2V CONVERSION
+
+Perform the conversion of the guest using virt-v2v:
+
+ $ virt-v2v -i libvirtxml guest.xml -o local -os /var/tmp
+
+=head2 ESXi: CLEAN UP
+
+Remove the F<guest.xml> and F<guest-disk*> files.
+
 =head1 INPUT FROM RHEL 5 XEN
 
 Virt-v2v is able to import Xen guests from RHEL 5 Xen hosts.
@@ -1172,6 +1305,10 @@ B<If the above commands do not work, then virt-v2v is not going to
 work either>.  Fix your libvirt configuration or the remote server
 before continuing.
 
+B<If the guest disks are located on a host block device>, then the
+conversion will fail.  See L</XEN OR SSH CONVERSIONS FROM BLOCK DEVICES>
+below for a workaround.
+
 =head2 XEN: IMPORTING A GUEST
 
 To import a particular guest from a Xen server, do:
@@ -1186,6 +1323,35 @@ down).
 In this case the output flags are set to write the converted guest to
 a temporary directory as this is just an example, but you can also
 write to libvirt or any other supported target.
+
+=head2 XEN OR SSH CONVERSIONS FROM BLOCK DEVICES
+
+Currently virt-v2v cannot directly access a Xen guest (or any guest
+located remotely over ssh) if that guest's disks are located on host
+block devices.
+
+To tell if a Xen guest uses host block devices, look at the guest XML.
+You will see:
+
+  <disk type='block' device='disk'>
+    ...
+    <source dev='/dev/VG/guest'/>
+
+where C<type='block'>, C<source dev=> and C</dev/...> are all
+indications that the disk is located on a host block device.
+
+This happens because the qemu ssh block driver that we use to access
+remote disks uses the ssh sftp protocol, and this protocol cannot
+correctly detect the size of host block devices.
+
+The workaround is to copy the guest over to the conversion server,
+using the separate L<virt-v2v-copy-to-local(1)> tool, followed by
+running virt-v2v.  You will need sufficient space on the conversion
+server to store a full copy of the guest.
+
+ virt-v2v-copy-to-local -ic xen+ssh://root@xen.example.com guest
+ virt-v2v -i libvirtxml guest.xml -o local -os /var/tmp
+ rm guest.xml guest-disk*
 
 =head1 OUTPUT TO LIBVIRT
 
@@ -1293,6 +1459,67 @@ additional details.
 
 If you export several guests, then you can import them all at the same
 time through the UI.
+
+=head1 OUTPUT TO GLANCE
+
+To output to OpenStack Glance, use the I<-o glance> option.
+
+This runs the L<glance(1)> CLI program which must be installed on the
+virt-v2v conversion host.  For authentication to work, you will need
+to set C<OS_*> environment variables.  In most cases you can do this
+by sourcing a file called something like F<keystonerc_admin>.
+
+Virt-v2v adds metadata for the guest to Glance, describing such things
+as the guest operating system and what drivers it requires.  The
+command C<glance image-show> will display the metadata as "Property"
+fields such as C<os_type> and C<hw_disk_bus>.
+
+=head2 Glance and sparseness
+
+Glance image upload doesn't appear to correctly handle sparseness.
+For this reason, using qcow2 will be faster and use less space on the
+Glance server.  Use the virt-v2v S<I<-of qcow2>> option.
+
+=head2 Glance and multiple disks
+
+If the guest has a single disk, then the name of the disk in Glance
+will be the name of the guest.  You can control this using the I<-on>
+option.
+
+Glance doesn't have a concept of associating multiple disks with a
+single guest, and Nova doesn't allow you to boot a guest from multiple
+Glance disks either.  If the guest has multiple disks, then the first
+(assumed to be the system disk) will have the name of the guest, and
+the second and subsequent data disks will be called
+C<I<guestname>-disk2>, C<I<guestname>-disk3> etc.  It may be best to
+leave the system disk in Glance, and import the data disks to Cinder
+(see next section).
+
+=head2 Importing disks into Cinder
+
+Since most virt-v2v guests are "pets", Glance is perhaps not the best
+place to store them.  There is no way for virt-v2v to upload directly
+to Cinder (L<https://bugzilla.redhat.com/1155229>).  There are two
+ways to upload to Cinder:
+
+=over 4
+
+=item 1.
+
+Import the image to Glance first (ie. I<-o glance>) and then copy it
+to Cinder:
+
+ cinder create --image-id <GLANCE-IMAGE-UUID> <SIZE>
+
+=item 2.
+
+Create (through some other means) a new volume / LUN in your Cinder
+backing store.  Migrate the guest to this volume (using I<-o local>).
+Then ask Cinder to take over management of the volume using:
+
+ cinder manage <VOLUMEREF>
+
+=back
 
 =head1 RESOURCE REQUIREMENTS
 
@@ -1656,6 +1883,14 @@ For other environment variables, see L<guestfs(3)/ENVIRONMENT VARIABLES>.
 
 =over 4
 
+=item L<virt-v2v-copy-to-local(1)>
+
+There are some special cases where virt-v2v cannot directly access the
+remote hypervisor.  In that case you have to use
+L<virt-v2v-copy-to-local(1)> to make a local copy of the guest first,
+followed by running C<virt-v2v -i libvirtxml> to perform the
+conversion.
+
 =item L<engine-image-uploader(8)>
 
 Variously called C<engine-image-uploader>, C<ovirt-image-uploader> or
@@ -1686,6 +1921,7 @@ L<guestfs(3)>,
 L<guestfish(1)>,
 L<qemu-img(1)>,
 L<fstrim(8)>,
+L<virt-v2v-copy-to-local(1)>,
 L<virt-v2v-test-harness(1)>,
 L<engine-image-uploader(8)>,
 L<import-to-ovirt.pl|http://git.annexia.org/?p=import-to-ovirt.git>,
@@ -1707,4 +1943,4 @@ Tingting Zheng
 
 =head1 COPYRIGHT
 
-Copyright (C) 2009-2015 Red Hat Inc.
+Copyright (C) 2009-2016 Red Hat Inc.

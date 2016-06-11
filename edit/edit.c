@@ -1,5 +1,5 @@
 /* virt-edit
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,7 +64,7 @@ usage (int status)
              guestfs_int_program_name);
   else {
     printf (_("%s: Edit a file in a virtual machine\n"
-              "Copyright (C) 2009-2015 Red Hat Inc.\n"
+              "Copyright (C) 2009-2016 Red Hat Inc.\n"
               "Usage:\n"
               "  %s [--options] -d domname file [file ...]\n"
               "  %s [--options] -a disk.img [-a disk.img ...] file [file ...]\n"
@@ -268,8 +268,11 @@ main (int argc, char *argv[])
   CHECK_OPTION_format_consumed;
 
   /* User must have specified some drives. */
-  if (drvs == NULL)
+  if (drvs == NULL) {
+    fprintf (stderr, _("%s: error: you must specify at least one -a or -d option.\n"),
+             guestfs_int_program_name);
     usage (EXIT_FAILURE);
+  }
 
   /* Add drives. */
   add_drives (drvs, 'a');

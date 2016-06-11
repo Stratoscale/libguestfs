@@ -1,6 +1,6 @@
 #!/bin/bash -
 # libguestfs virt-p2v test script
-# Copyright (C) 2014-2015 Red Hat Inc.
+# Copyright (C) 2014-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,6 +27,11 @@
 unset CDPATH
 export LANG=C
 set -e
+
+if [ -z "$SLOW" ]; then
+    echo "$0: use 'make check-slow' to run this test"
+    exit 77
+fi
 
 if [ -n "$SKIP_TEST_VIRT_P2V_PXE_SH" ]; then
     echo "$0: test skipped because environment variable is set"
@@ -55,7 +60,7 @@ if ! test -f $img; then
     exit 77
 fi
 
-guestsdir="$(cd ../tests/guests && pwd)"
+guestsdir="$(cd ../test-data/phony-guests && pwd)"
 f="$guestsdir/windows.img"
 if ! test -f $f; then
     echo "$0: test skipped because phony Windows image was not created"

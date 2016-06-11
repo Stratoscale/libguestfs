@@ -1,5 +1,5 @@
 /* libguestfs - the guestfsd daemon
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -216,7 +216,9 @@ do_inotify_read (void)
     r = read (inotify_fd, inotify_buf + inotify_posn,
               sizeof (inotify_buf) - inotify_posn);
     if (r == -1) {
-      if (errno == EWOULDBLOCK || errno == EAGAIN) /* End of list. */
+       /* End of list? */
+      if (errno == EWOULDBLOCK ||
+          (EWOULDBLOCK != EAGAIN && errno == EAGAIN))
         break;
       reply_with_perror ("read");
       goto error;

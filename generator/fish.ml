@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +30,8 @@ open Structs
 open Prepopts
 open C
 open Events
+
+let generate_header = generate_header ~inputs:["generator/fish.ml"]
 
 type func =
   | Function of string           (* The description. *)
@@ -69,6 +71,11 @@ let all_functions_commands_and_aliases_sorted =
     ) (fish_functions_sorted @ fish_commands) [] in
   List.sort func_compare all
 
+let c_quoted_indented ~indent str =
+  let str = c_quote str in
+  let str = replace_str str "\\n" ("\\n\"\n" ^ indent ^ "\"") in
+  str
+
 (* Generate a lot of different functions for guestfish. *)
 let generate_fish_cmds () =
   generate_header CStyle GPLv2plus;
@@ -92,6 +99,7 @@ let generate_fish_cmds () =
   pr "\n";
   pr "#include \"guestfs.h\"\n";
   pr "#include \"guestfs-internal-frontend.h\"\n";
+  pr "#include \"structs-print.h\"\n";
   pr "\n";
   pr "#include \"fish.h\"\n";
   pr "#include \"fish-cmds.h\"\n";
@@ -135,7 +143,7 @@ let generate_fish_cmds () =
 
       pr "struct command_entry %s_cmd_entry = {\n" name;
       pr "  .name = \"%s\",\n" name2;
-      pr "  .help = \"%s\",\n" (c_quote text);
+      pr "  .help = \"%s\",\n" (c_quoted_indented ~indent:"          " text);
       pr "  .synopsis = NULL,\n";
       pr "  .run = run_%s\n" name;
       pr "};\n";
@@ -197,7 +205,7 @@ Guestfish will prompt for these separately."
 
       pr "struct command_entry %s_cmd_entry = {\n" name;
       pr "  .name = \"%s\",\n" name2;
-      pr "  .help = \"%s\",\n" (c_quote text);
+      pr "  .help = \"%s\",\n" (c_quoted_indented ~indent:"          " text);
       pr "  .synopsis = \"%s\",\n" (c_quote synopsis);
       pr "  .run = run_%s\n" name;
       pr "};\n";
@@ -253,69 +261,13 @@ Guestfish will prompt for these separately."
     pr "\n";
     pr "  for (i = 0; i < %ss->len; ++i) {\n" typ;
     pr "    printf (\"[%%zu] = {\\n\", i);\n";
-    pr "    print_%s_indent (&%ss->val[i], \"  \");\n" typ typ;
+    pr "    guestfs_int_print_%s_indent (&%ss->val[i], stdout, \"\\n\", \"  \");\n"
+      typ typ;
     pr "    printf (\"}\\n\");\n";
     pr "  }\n";
     pr "}\n";
     pr "\n";
   in
-
-  (* print_* functions *)
-  List.iter (
-    fun { s_name = typ; s_cols = cols } ->
-      let needs_i =
-        List.exists (function (_, (FUUID|FBuffer)) -> true | _ -> false) cols in
-
-      pr "static void\n";
-      pr "print_%s_indent (struct guestfs_%s *%s, const char *indent)\n" typ typ typ;
-      pr "{\n";
-      if needs_i then (
-        pr "  size_t i;\n";
-        pr "\n"
-      );
-      List.iter (
-        function
-        | name, FString ->
-            pr "  printf (\"%%s%s: %%s\\n\", indent, %s->%s);\n" name typ name
-        | name, FUUID ->
-            pr "  printf (\"%%s%s: \", indent);\n" name;
-            pr "  for (i = 0; i < 32; ++i)\n";
-            pr "    printf (\"%%c\", %s->%s[i]);\n" typ name;
-            pr "  printf (\"\\n\");\n"
-        | name, FBuffer ->
-            pr "  printf (\"%%s%s: \", indent);\n" name;
-            pr "  for (i = 0; i < %s->%s_len; ++i)\n" typ name;
-            pr "    if (c_isprint (%s->%s[i]))\n" typ name;
-            pr "      printf (\"%%c\", %s->%s[i]);\n" typ name;
-            pr "    else\n";
-            pr "      printf (\"\\\\x%%02x\", (unsigned) %s->%s[i]);\n"
-               typ name;
-            pr "  printf (\"\\n\");\n"
-        | name, (FUInt64|FBytes) ->
-            pr "  printf (\"%%s%s: %%\" PRIu64 \"\\n\", indent, %s->%s);\n"
-              name typ name
-        | name, FInt64 ->
-            pr "  printf (\"%%s%s: %%\" PRIi64 \"\\n\", indent, %s->%s);\n"
-              name typ name
-        | name, FUInt32 ->
-            pr "  printf (\"%%s%s: %%\" PRIu32 \"\\n\", indent, %s->%s);\n"
-              name typ name
-        | name, FInt32 ->
-            pr "  printf (\"%%s%s: %%\" PRIi32 \"\\n\", indent, %s->%s);\n"
-              name typ name
-        | name, FChar ->
-            pr "  printf (\"%%s%s: %%c\\n\", indent, %s->%s);\n"
-              name typ name
-        | name, FOptPercent ->
-            pr "  if (%s->%s >= 0)\n" typ name;
-            pr "    printf (\"%%s%s: %%g %%%%\\n\", indent, (double) %s->%s);\n"
-              name typ name;
-            pr "  else\n";
-            pr "    printf (\"%%s%s: \\n\", indent);\n" name
-      ) cols;
-      pr "}\n";
-      pr "\n";
-  ) external_structs;
 
   (* Emit a print_TYPE_list function definition only if that function is used. *)
   List.iter (
@@ -333,7 +285,8 @@ Guestfish will prompt for these separately."
         pr "static void\n";
         pr "print_%s (struct guestfs_%s *%s)\n" typ typ typ;
         pr "{\n";
-        pr "  print_%s_indent (%s, \"\");\n" typ typ;
+        pr "  guestfs_int_print_%s_indent (%s, stdout, \"\\n\", \"\");\n"
+          typ typ;
         pr "}\n";
         pr "\n";
     | typ, _ -> () (* empty *)
@@ -376,7 +329,8 @@ Guestfish will prompt for these separately."
         | BufferIn n ->
             pr "  const char *%s;\n" n;
             pr "  size_t %s_size;\n" n
-        | StringList n | DeviceList n -> pr "  char **%s;\n" n
+        | StringList n | DeviceList n | FilenameList n ->
+            pr "  char **%s;\n" n
         | Bool n -> pr "  int %s;\n" n
         | Int n -> pr "  int %s;\n" n
         | Int64 n -> pr "  int64_t %s;\n" n
@@ -464,7 +418,7 @@ Guestfish will prompt for these separately."
         | FileOut name ->
             pr "  %s = file_out (argv[i++]);\n" name;
             pr "  if (%s == NULL) goto out_%s;\n" name name
-        | StringList name | DeviceList name ->
+        | StringList name | DeviceList name | FilenameList name ->
             pr "  %s = parse_string_list (argv[i++]);\n" name;
             pr "  if (%s == NULL) goto out_%s;\n" name name
         | Key name ->
@@ -678,7 +632,7 @@ Guestfish will prompt for these separately."
         | FileIn name ->
             pr "  free_file_in (%s);\n" name;
             pr " out_%s:\n" name
-        | StringList name | DeviceList name ->
+        | StringList name | DeviceList name | FilenameList name ->
             pr "  guestfs_int_free_string_list (%s);\n" name;
             pr " out_%s:\n" name
         | Pointer _ -> assert false
@@ -917,7 +871,8 @@ and generate_fish_actions_pod () =
         | GUID n ->
             pr " %s" n
         | OptString n -> pr " %s" n
-        | StringList n | DeviceList n -> pr " '%s ...'" n
+        | StringList n | DeviceList n | FilenameList n ->
+            pr " '%s ...'" n
         | Bool _ -> pr " true|false"
         | Int n -> pr " %s" n
         | Int64 n -> pr " %s" n
@@ -947,9 +902,17 @@ Guestfish will prompt for these separately.\n\n";
       if f.protocol_limit_warning then
         pr "%s\n\n" protocol_limit_warning;
 
-      match deprecation_notice ~replace_underscores:true f with
+      (match deprecation_notice ~replace_underscores:true f with
       | None -> ()
       | Some txt -> pr "%s\n\n" txt
+      );
+
+      (match f.optional with
+      | None -> ()
+      | Some opt ->
+        pr "This command depends on the feature C<%s>.   See also
+L</feature-available>.\n\n" opt
+      );
   ) fishdoc_functions_sorted
 
 (* Generate documentation for guestfish-only commands. *)
@@ -1143,3 +1106,36 @@ event_bitmask_of_event_set (const char *arg, uint64_t *eventset_r)
   return 0;
 }
 "
+
+and generate_fish_test_prep_sh () =
+  pr "#!/bin/bash -\n";
+  generate_header HashStyle GPLv2plus;
+
+  let all_disks = sprintf "prep{1..%d}.img" (List.length prepopts) in
+
+  pr "\
+set -e
+
+rm -f %s
+
+$VG guestfish \\
+" all_disks;
+
+  let vg_count = ref 0 in
+
+  iteri (
+    fun i (name, _, _, _) ->
+      let params = [name] in
+      let params =
+        if find name "lv" <> -1 then (
+          incr vg_count;
+          sprintf "/dev/VG%d/LV" !vg_count :: params
+        ) else params in
+      let params = List.rev params in
+      pr "    -N prep%d.img=%s \\\n" (i + 1) (String.concat ":" params)
+  ) prepopts;
+
+  pr "    exit
+
+rm %s
+" all_disks

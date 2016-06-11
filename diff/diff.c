@@ -93,7 +93,7 @@ usage (int status)
              guestfs_int_program_name);
   else {
     printf (_("%s: list differences between virtual machines\n"
-              "Copyright (C) 2010-2015 Red Hat Inc.\n"
+              "Copyright (C) 2010-2016 Red Hat Inc.\n"
               "Usage:\n"
               "  %s [--options] -d domain1 -D domain2\n"
               "  %s [--options] -a disk1.img -A disk2.img [-a|-A ...]\n"
@@ -316,10 +316,14 @@ main (int argc, char *argv[])
     }
   }
 
-  if (drvs == NULL || drvs2 == NULL) {
-    fprintf (stderr,
-             _("%s: you must specify some -a|-A|-d|-D options, see %s(1)\n"),
-             guestfs_int_program_name, guestfs_int_program_name);
+  if (drvs == NULL) {
+    fprintf (stderr, _("%s: error: you must specify at least one -a or -d option.\n"),
+             guestfs_int_program_name);
+    usage (EXIT_FAILURE);
+  }
+  if (drvs2 == NULL) {
+    fprintf (stderr, _("%s: error: you must specify at least one -A or -D option.\n"),
+             guestfs_int_program_name);
     usage (EXIT_FAILURE);
   }
 

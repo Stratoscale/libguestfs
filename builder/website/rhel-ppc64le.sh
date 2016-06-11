@@ -1,6 +1,6 @@
 #!/bin/bash -
 # virt-builder
-# Copyright (C) 2013-2015 Red Hat Inc.
+# Copyright (C) 2013-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -139,5 +139,7 @@ virt-install \
 # won't be registered).
 guestfish --rw -a $output -m $guestroot \
   upload $yum /etc/yum.repos.d/download.devel.redhat.com.repo
+
+DO_RELABEL=1
 
 source $(dirname "$0")/compress.sh $output

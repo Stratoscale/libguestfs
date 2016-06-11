@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,8 @@ open Optgroups
 open Actions
 open Structs
 open C
+
+let generate_header = generate_header ~inputs:["generator/php.ml"]
 
 let rec generate_php_h () =
   generate_header CStyle LGPLv2plus;
@@ -91,6 +93,32 @@ and generate_php_c () =
 
 static int res_guestfs_h;
 
+#if ZEND_MODULE_API_NO >= 20151012
+# define GUESTFS_RETURN_STRING(x, duplicate) \\
+    do { if (duplicate) RETURN_STRING(x) else { RETVAL_STRING(x); efree ((char *)x); return; } } while (0)
+# define guestfs_add_assoc_string(arg, key, str, dup) \\
+    add_assoc_string(arg, key, str)
+# define guestfs_add_assoc_stringl(arg, key, str, len, dup) \\
+    add_assoc_stringl(arg, key, str, len)
+# define guestfs_add_next_index_string(retval, val, x) \\
+    add_next_index_string (retval, val)
+# define GUESTFS_ZEND_FETCH_RESOURCE(rsrc, rsrc_type, passed_id, resource_type_name, resource_type) \\
+    (rsrc) = (rsrc_type) zend_fetch_resource (Z_RES_P(passed_id), resource_type_name, resource_type)
+typedef size_t guestfs_string_length;
+#else
+# define GUESTFS_RETURN_STRING(x, duplicate) \\
+    RETURN_STRING(x, duplicate)
+# define guestfs_add_assoc_string(arg, key, str, dup) \\
+    add_assoc_string(arg, key, str, dup)
+# define guestfs_add_assoc_stringl(arg, key, str, len, dup) \\
+    add_assoc_stringl(arg, key, str, len, dup)
+# define guestfs_add_next_index_string(retval, val, x) \\
+    add_next_index_string (retval, val, x)
+# define GUESTFS_ZEND_FETCH_RESOURCE(rsrc, rsrc_type, passed_id, resource_type_name, resource_type) \\
+  ZEND_FETCH_RESOURCE(rsrc, rsrc_type, &(passed_id), -1, resource_type_name, resource_type)
+typedef int guestfs_string_length;
+#endif
+
 /* Convert array to list of strings.
  * http://marc.info/?l=pecl-dev&m=112205192100631&w=2
  */
@@ -101,16 +129,28 @@ get_stringlist (zval *val)
   HashTable *a;
   int n;
   HashPosition p;
+#if ZEND_MODULE_API_NO >= 20151012
+  zval *d;
+#else
   zval **d;
+#endif
   size_t c = 0;
 
   a = Z_ARRVAL_P (val);
   n = zend_hash_num_elements (a);
   ret = safe_emalloc (n + 1, sizeof (char *), 0);
   for (zend_hash_internal_pointer_reset_ex (a, &p);
+#if ZEND_MODULE_API_NO >= 20151012
+       d = zend_hash_get_current_data_ex (a, &p);
+#else
        zend_hash_get_current_data_ex (a, (void **) &d, &p) == SUCCESS;
+#endif
        zend_hash_move_forward_ex (a, &p)) {
+#if ZEND_MODULE_API_NO >= 20151012
+    zval t = *d;
+#else
     zval t = **d;
+#endif
     zval_copy_ctor (&t);
     convert_to_string (&t);
     ret[c] = estrndup (Z_STRVAL(t), Z_STRLEN (t));
@@ -131,8 +171,13 @@ guestfs_efree_stringlist (char **p)
   efree (p);
 }
 
+#if ZEND_MODULE_API_NO >= 20151012
+static void
+guestfs_php_handle_dtor (zend_resource *rsrc)
+#else
 static void
 guestfs_php_handle_dtor (zend_rsrc_list_entry *rsrc TSRMLS_DC)
+#endif
 {
   guestfs_h *g = (guestfs_h *) rsrc->ptr;
   if (g != NULL)
@@ -189,7 +234,11 @@ PHP_FUNCTION (guestfs_create)
 
   guestfs_set_error_handler (g, NULL, NULL);
 
+#if ZEND_MODULE_API_NO >= 20151012
+  ZVAL_RES(return_value, zend_register_resource(g, res_guestfs_h));
+#else
   ZEND_REGISTER_RESOURCE (return_value, g, res_guestfs_h);
+#endif
 }
 
 PHP_FUNCTION (guestfs_last_error)
@@ -202,15 +251,15 @@ PHP_FUNCTION (guestfs_last_error)
     RETURN_FALSE;
   }
 
-  ZEND_FETCH_RESOURCE (g, guestfs_h *, &z_g, -1, PHP_GUESTFS_HANDLE_RES_NAME,
-                       res_guestfs_h);
+  GUESTFS_ZEND_FETCH_RESOURCE (g, guestfs_h *, z_g,
+                               PHP_GUESTFS_HANDLE_RES_NAME, res_guestfs_h);
   if (g == NULL) {
     RETURN_FALSE;
   }
 
   const char *err = guestfs_last_error (g);
   if (err) {
-    RETURN_STRING (err, 1);
+    GUESTFS_RETURN_STRING (err, 1);
   } else {
     RETURN_NULL ();
   }
@@ -235,12 +284,13 @@ PHP_FUNCTION (guestfs_last_error)
         | BufferIn n
         | GUID n ->
             pr "  char *%s;\n" n;
-            pr "  int %s_size;\n" n
+            pr "  guestfs_string_length %s_size;\n" n
         | OptString n ->
             pr "  char *%s = NULL;\n" n;
-            pr "  int %s_size;\n" n
+            pr "  guestfs_string_length %s_size;\n" n
         | StringList n
-        | DeviceList n ->
+        | DeviceList n
+        | FilenameList n ->
             pr "  zval *z_%s;\n" n;
             pr "  char **%s;\n" n;
         | Bool n ->
@@ -267,7 +317,7 @@ PHP_FUNCTION (guestfs_last_error)
           | OInt n | OInt64 n -> pr "  long optargs_t_%s = -1;\n" n
           | OString n ->
               pr "  char *optargs_t_%s = NULL;\n" n;
-              pr "  int optargs_t_%s_size = -1;\n" n
+              pr "  guestfs_string_length optargs_t_%s_size = -1;\n" n
           | OStringList n ->
               pr "  zval *optargs_t_%s = NULL;\n" n
         ) optargs
@@ -284,7 +334,7 @@ PHP_FUNCTION (guestfs_last_error)
           | FileIn n | FileOut n | BufferIn n | Key n
           | GUID n -> "s"
           | OptString n -> "s!"
-          | StringList n | DeviceList n -> "a"
+          | StringList n | DeviceList n | FilenameList n -> "a"
           | Bool n -> "b"
           | Int n | Int64 n -> "l"
           | Pointer _ -> ""
@@ -319,7 +369,7 @@ PHP_FUNCTION (guestfs_last_error)
         | FileIn n | FileOut n | BufferIn n | Key n
         | OptString n | GUID n ->
             pr ", &%s, &%s_size" n n
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
             pr ", &z_%s" n
         | Bool n ->
             pr ", &%s" n
@@ -340,8 +390,8 @@ PHP_FUNCTION (guestfs_last_error)
       pr "    RETURN_FALSE;\n";
       pr "  }\n";
       pr "\n";
-      pr "  ZEND_FETCH_RESOURCE (g, guestfs_h *, &z_g, -1, PHP_GUESTFS_HANDLE_RES_NAME,\n";
-      pr "                       res_guestfs_h);\n";
+      pr "  GUESTFS_ZEND_FETCH_RESOURCE (g, guestfs_h *, z_g,\n";
+      pr "                               PHP_GUESTFS_HANDLE_RES_NAME, res_guestfs_h);\n";
       pr "  if (g == NULL) {\n";
       pr "    RETURN_FALSE;\n";
       pr "  }\n";
@@ -372,7 +422,8 @@ PHP_FUNCTION (guestfs_last_error)
             pr "\n"
         | BufferIn n -> ()
         | StringList n
-        | DeviceList n ->
+        | DeviceList n
+        | FilenameList n ->
             pr "  %s = get_stringlist (z_%s);\n" n n;
             pr "\n"
         | Bool _ | Int _ | Int64 _ -> ()
@@ -453,7 +504,8 @@ PHP_FUNCTION (guestfs_last_error)
         | OptString n | GUID n -> ()
         | BufferIn n -> ()
         | StringList n
-        | DeviceList n ->
+        | DeviceList n
+        | FilenameList n ->
             pr "  guestfs_efree_stringlist (%s);\n" n;
             pr "\n"
         | Bool _ | Int _ | Int64 _ | Pointer _ -> ()
@@ -494,23 +546,23 @@ PHP_FUNCTION (guestfs_last_error)
        | RInt64 _ ->
            pr "  RETURN_LONG (r);\n"
        | RConstString _ ->
-           pr "  RETURN_STRING (r, 1);\n"
+           pr "  GUESTFS_RETURN_STRING (r, 1);\n"
        | RConstOptString _ ->
-           pr "  if (r) { RETURN_STRING (r, 1); }\n";
+           pr "  if (r) { GUESTFS_RETURN_STRING (r, 1); }\n";
            pr "  else { RETURN_NULL (); }\n"
        | RString _ ->
            pr "  char *r_copy = estrdup (r);\n";
            pr "  free (r);\n";
-           pr "  RETURN_STRING (r_copy, 0);\n"
+           pr "  GUESTFS_RETURN_STRING (r_copy, 0);\n"
        | RBufferOut _ ->
            pr "  char *r_copy = estrndup (r, size);\n";
            pr "  free (r);\n";
-           pr "  RETURN_STRING (r_copy, 0);\n"
+           pr "  GUESTFS_RETURN_STRING (r_copy, 0);\n"
        | RStringList _ ->
            pr "  size_t c = 0;\n";
            pr "  array_init (return_value);\n";
            pr "  for (c = 0; r[c] != NULL; ++c) {\n";
-           pr "    add_next_index_string (return_value, r[c], 1);\n";
+           pr "    guestfs_add_next_index_string (return_value, r[c], 1);\n";
            pr "    free (r[c]);\n";
            pr "  }\n";
            pr "  free (r);\n";
@@ -518,7 +570,7 @@ PHP_FUNCTION (guestfs_last_error)
            pr "  size_t c = 0;\n";
            pr "  array_init (return_value);\n";
            pr "  for (c = 0; r[c] != NULL; c += 2) {\n";
-           pr "    add_assoc_string (return_value, r[c], r[c+1], 1);\n";
+           pr "    guestfs_add_assoc_string (return_value, r[c], r[c+1], 1);\n";
            pr "    free (r[c]);\n";
            pr "    free (r[c+1]);\n";
            pr "  }\n";
@@ -540,18 +592,18 @@ and generate_php_struct_code typ cols =
   List.iter (
     function
     | name, FString ->
-        pr "  add_assoc_string (return_value, \"%s\", r->%s, 1);\n" name name
+        pr "  guestfs_add_assoc_string (return_value, \"%s\", r->%s, 1);\n" name name
     | name, FBuffer ->
-        pr "  add_assoc_stringl (return_value, \"%s\", r->%s, r->%s_len, 1);\n"
+        pr "  guestfs_add_assoc_stringl (return_value, \"%s\", r->%s, r->%s_len, 1);\n"
           name name name
     | name, FUUID ->
-        pr "  add_assoc_stringl (return_value, \"%s\", r->%s, 32, 1);\n"
+        pr "  guestfs_add_assoc_stringl (return_value, \"%s\", r->%s, 32, 1);\n"
           name name
     | name, (FBytes|FUInt64|FInt64|FInt32|FUInt32) ->
         pr "  add_assoc_long (return_value, \"%s\", r->%s);\n"
           name name
     | name, FChar ->
-        pr "  add_assoc_stringl (return_value, \"%s\", &r->%s, 1, 1);\n"
+        pr "  guestfs_add_assoc_stringl (return_value, \"%s\", &r->%s, 1, 1);\n"
           name name
     | name, FOptPercent ->
         pr "  add_assoc_double (return_value, \"%s\", r->%s);\n"
@@ -563,25 +615,30 @@ and generate_php_struct_list_code typ cols =
   pr "  array_init (return_value);\n";
   pr "  size_t c = 0;\n";
   pr "  for (c = 0; c < r->len; ++c) {\n";
+  pr "#if ZEND_MODULE_API_NO >= 20151012\n";
+  pr "    zval elem;\n";
+  pr "    zval *z_elem = &elem;\n";
+  pr "#else\n";
   pr "    zval *z_elem;\n";
   pr "    ALLOC_INIT_ZVAL (z_elem);\n";
+  pr "#endif\n";
   pr "    array_init (z_elem);\n";
   List.iter (
     function
     | name, FString ->
-        pr "    add_assoc_string (z_elem, \"%s\", r->val[c].%s, 1);\n"
+        pr "    guestfs_add_assoc_string (z_elem, \"%s\", r->val[c].%s, 1);\n"
           name name
     | name, FBuffer ->
-        pr "    add_assoc_stringl (z_elem, \"%s\", r->val[c].%s, r->val[c].%s_len, 1);\n"
+        pr "    guestfs_add_assoc_stringl (z_elem, \"%s\", r->val[c].%s, r->val[c].%s_len, 1);\n"
           name name name
     | name, FUUID ->
-        pr "    add_assoc_stringl (z_elem, \"%s\", r->val[c].%s, 32, 1);\n"
+        pr "    guestfs_add_assoc_stringl (z_elem, \"%s\", r->val[c].%s, 32, 1);\n"
           name name
     | name, (FBytes|FUInt64|FInt64|FInt32|FUInt32) ->
         pr "    add_assoc_long (z_elem, \"%s\", r->val[c].%s);\n"
           name name
     | name, FChar ->
-        pr "    add_assoc_stringl (z_elem, \"%s\", &r->val[c].%s, 1, 1);\n"
+        pr "    guestfs_add_assoc_stringl (z_elem, \"%s\", &r->val[c].%s, 1, 1);\n"
           name name
     | name, FOptPercent ->
         pr "    add_assoc_double (z_elem, \"%s\", r->val[c].%s);\n"

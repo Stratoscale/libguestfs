@@ -1,5 +1,5 @@
 /* libguestfs - the guestfsd daemon
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -376,7 +376,7 @@ do_internal_lxattrlist (const char *path, char *const *names)
      * entry[1..nr_attrs] are the attributes.
      */
     entry = &ret->guestfs_int_xattr_list_val[ret->guestfs_int_xattr_list_len-nr_attrs-1];
-    for (m = 1; m <= nr_attrs; ++m) {
+    for (m = 1; m < nr_attrs+1; ++m) {
       entry[m].attrname = NULL;
       entry[m].attrval.attrval_len = 0;
       entry[m].attrval.attrval_val = NULL;

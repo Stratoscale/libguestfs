@@ -22,6 +22,11 @@ use warnings;
 
 use Sys::Guestfs;
 
+unless ($ENV{SLOW}) {
+    print "$0: use 'make check-slow' to run this test\n";
+    exit 77;
+}
+
 my $g = Sys::Guestfs->new ();
 
 # Create a 2 GB test file.  Don't worry, it's sparse.
@@ -63,7 +68,6 @@ for (my $i = 0; $i < $nr_files; ++$i) {
 # Check that lstatlist, lxattrlist and readlinklist return the
 # expected number of entries.
 my @a;
-@filenames = map { "/dir/$_" } @filenames;
 
 @a = $g->lstatlist ("/dir", \@filenames);
 die unless @a == $nr_files;

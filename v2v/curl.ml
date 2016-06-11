@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,7 +48,7 @@ let run curl_args =
   close_out chan;
 
   let cmd = sprintf "curl -q --config %s" (Filename.quote config_file) in
-  let lines = external_command cmd in
+  let lines = external_command ~echo_cmd:false cmd in
   Unix.unlink config_file;
   lines
 

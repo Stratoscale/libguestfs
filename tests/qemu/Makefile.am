@@ -30,7 +30,6 @@ TESTS_ENVIRONMENT = $(top_builddir)/run --test
 
 EXTRA_DIST = \
 	$(TESTS) \
-	guestfs-md5.sh \
 	qemu-boot.c \
 	qemu-speed-test.c
 
@@ -44,7 +43,6 @@ qemu_boot_SOURCES = \
 	../../df/estimate-max-threads.h \
 	qemu-boot.c
 qemu_boot_CPPFLAGS = \
-	-DGUESTFS_PRIVATE=1 \
 	-I$(top_srcdir)/gnulib/lib -I$(top_builddir)/gnulib/lib \
 	-I$(top_srcdir)/src -I$(top_builddir)/src \
 	-I$(top_srcdir)/df
@@ -62,7 +60,6 @@ qemu_boot_LDADD = \
 qemu_speed_test_SOURCES = \
 	qemu-speed-test.c
 qemu_speed_test_CPPFLAGS = \
-	-DGUESTFS_PRIVATE=1 \
 	-I$(top_srcdir)/gnulib/lib -I$(top_builddir)/gnulib/lib \
 	-I$(top_srcdir)/src -I$(top_builddir)/src \
 	-I$(top_srcdir)/df
@@ -75,3 +72,7 @@ qemu_speed_test_LDADD = \
 	$(LIBVIRT_LIBS) \
 	$(LTLIBINTL) \
 	$(top_builddir)/gnulib/lib/libgnu.la
+
+# Don't run these tests in parallel, since they are designed to check
+# the integrity of qemu.
+.NOTPARALLEL:

@@ -1,6 +1,6 @@
 #!/bin/bash -
 # virt-builder
-# Copyright (C) 2013-2015 Red Hat Inc.
+# Copyright (C) 2013-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -39,7 +39,8 @@ case $version in
         ;;
     7.*)
         major=7
-        # XXX Need to fix the URL when 7.1 comes out.
+        # XXX This always points to the latest CentOS 7, so
+        # effectively the minor number is always ignored.
         tree=http://mirror.centos.org/centos-7/$major/os/x86_64/
         ;;
 esac
@@ -94,5 +95,7 @@ virt-install \
     --location=$tree \
     --nographics \
     --noreboot
+
+DO_RELABEL=1
 
 source $(dirname "$0")/compress.sh $output

@@ -1,5 +1,5 @@
 /* libguestfs - the guestfsd daemon
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -82,8 +82,8 @@ do_ntfsclone_in (const char *device)
   close (fd);
 
   /* Construct the command. */
-  if (asprintf_nowarn (&cmd, "%s -O %s --restore-image - 2> %s",
-                       str_ntfsclone, device, error_file) == -1) {
+  if (asprintf (&cmd, "%s -O %s --restore-image - 2> %s",
+                str_ntfsclone, device, error_file) == -1) {
     err = errno;
     r = cancel_receive ();
     errno = err;

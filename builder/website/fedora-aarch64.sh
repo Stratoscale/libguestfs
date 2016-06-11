@@ -1,6 +1,6 @@
 #!/bin/bash -
 # virt-builder
-# Copyright (C) 2013-2015 Red Hat Inc.
+# Copyright (C) 2013-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -64,6 +64,9 @@ poweroff
 # Rerun dracut for the installed kernel (not the running kernel):
 KERNEL_VERSION=$(rpm -q kernel --qf '%{version}-%{release}.%{arch}\n')
 dracut -f /boot/initramfs-$KERNEL_VERSION.img $KERNEL_VERSION
+
+# Ensure the installation is up-to-date:
+dnf -y --best upgrade
 %end
 EOF
 
@@ -79,14 +82,14 @@ trap cleanup INT QUIT TERM EXIT ERR
 # https://bugzilla.redhat.com/show_bug.cgi?id=1189143
 # work around it:
 vars=$(mktemp)
-cp /usr/share/AAVMF/AAVMF_VARS.fd $vars
+cp /usr/share/edk2.git/aarch64/vars-template-pflash.raw $vars
 
 virt-install \
     --name=$tmpname \
     --ram=4096 \
     --cpu=host --vcpus=2 \
     --os-type=linux --os-variant=fedora21 \
-    --boot loader=/usr/share/AAVMF/AAVMF_CODE.fd,loader_ro=yes,loader_type=pflash,nvram=$vars \
+    --boot loader=/usr/share/edk2.git/aarch64/QEMU_EFI-pflash.raw,loader_ro=yes,loader_type=pflash,nvram=$vars \
     --initrd-inject=$ks \
     --extra-args="ks=file:/`basename $ks` earlyprintk=pl011,0x9000000 ignore_loglevel console=ttyAMA0 no_timer_check printk.time=1 proxy=$http_proxy" \
     --disk $(pwd)/$output,size=6,format=raw \
@@ -99,5 +102,7 @@ virt-install \
 # it contains the EFI boot variables set by grub.
 cp $vars $output-nvram
 xz --best $output-nvram
+
+DO_RELABEL=1
 
 source $(dirname "$0")/compress.sh $output

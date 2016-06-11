@@ -1,5 +1,5 @@
 (* virt-builder
- * Copyright (C) 2013 Red Hat Inc.
+ * Copyright (C) 2013-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,11 +77,7 @@ let remove_duplicates index =
 
 let main () =
   (* Command line argument parsing - see cmdline.ml. *)
-  let mode, arg,
-    arch, attach, cache, check_signature, curl,
-    delete_on_failure, format, gpg, list_format, memsize,
-    network, ops, output, size, smp, sources, sync =
-    parse_cmdline () in
+  let cmdline = parse_cmdline () in
 
   (* If debugging, echo the command line arguments and the sources. *)
   if verbose () then (
@@ -91,29 +87,27 @@ let main () =
     iteri (
       fun i (source, fingerprint) ->
         printf "source[%d] = (%S, %S)\n" i source fingerprint
-    ) sources
+    ) cmdline.sources
   );
 
   (* Handle some modes here, some later on. *)
   let mode =
-    match mode with
+    match cmdline.mode with
     | `Get_kernel -> (* --get-kernel is really a different program ... *)
-      let cmd =
-        sprintf "virt-get-kernel%s%s%s%s --add %s"
-          (if verbose () then " --verbose" else "")
-          (if trace () then " -x" else "")
-          (match format with
-          | None -> ""
-          | Some format -> sprintf " --format %s" (quote format))
-          (match output with
-          | None -> ""
-          | Some output -> sprintf " --output %s" (quote output))
-          (quote arg) in
-      if verbose () then printf "%s\n%!" cmd;
-      exit (Sys.command cmd)
+      let cmd = [ "virt-get-kernel" ] @
+        (if verbose () then [ "--verbose" ] else []) @
+        (if trace () then [ "-x" ] else []) @
+        (match cmdline.format with
+        | None -> []
+        | Some format -> [ "--format"; format ]) @
+        (match cmdline.output with
+        | None -> []
+        | Some output -> [ "--output"; output ]) @
+        [ "--add"; cmdline.arg ] in
+      exit (run_command cmd)
 
     | `Delete_cache ->                  (* --delete-cache *)
-      (match cache with
+      (match cmdline.cache with
       | Some cachedir ->
         message (f_"Deleting: %s") cachedir;
         Cache.clean_cachedir cachedir;
@@ -129,27 +123,27 @@ let main () =
   (* Check that gpg is installed.  Optional as long as the user
    * disables all signature checks.
    *)
-  let cmd = sprintf "%s --help >/dev/null 2>&1" gpg in
-  if Sys.command cmd <> 0 then (
-    if check_signature then
+  let cmd = sprintf "%s --help >/dev/null 2>&1" cmdline.gpg in
+  if shell_command cmd <> 0 then (
+    if cmdline.check_signature then
       error (f_"gpg is not installed (or does not work)\nYou should install gpg, or use --gpg option, or use --no-check-signature.")
     else if verbose () then
       warning (f_"gpg program is not available")
   );
 
   (* Check that curl works. *)
-  let cmd = sprintf "%s --help >/dev/null 2>&1" curl in
-  if Sys.command cmd <> 0 then
+  let cmd = sprintf "%s --help >/dev/null 2>&1" cmdline.curl in
+  if shell_command cmd <> 0 then
     error (f_"curl is not installed (or does not work)");
 
   (* Check that virt-resize works. *)
   let cmd = "virt-resize --help >/dev/null 2>&1" in
-  if Sys.command cmd <> 0 then
+  if shell_command cmd <> 0 then
     error (f_"virt-resize is not installed (or does not work)");
 
   (* Create the cache. *)
   let cache =
-    match cache with
+    match cmdline.cache with
     | None -> None
     | Some dir ->
       try Some (Cache.create ~directory:dir)
@@ -160,7 +154,7 @@ let main () =
   in
 
   (* Download the sources. *)
-  let downloader = Downloader.create ~curl ~cache in
+  let downloader = Downloader.create ~curl:cmdline.curl ~cache in
   let repos = Sources.read_sources () in
   let sources = List.map (
     fun (source, fingerprint) ->
@@ -170,15 +164,16 @@ let main () =
         proxy = Downloader.SystemProxy;
         format = Sources.FormatNative;
       }
-  ) sources in
+  ) cmdline.sources in
   let sources = List.append sources repos in
   let index : Index.index =
     List.concat (
       List.map (
         fun source ->
           let sigchecker =
-            Sigchecker.create ~gpg ~check_signature
-              ~gpgkey:source.Sources.gpgkey in
+            Sigchecker.create ~gpg:cmdline.gpg
+                              ~check_signature:cmdline.check_signature
+                              ~gpgkey:source.Sources.gpgkey in
           match source.Sources.format with
           | Sources.FormatNative ->
             Index_parser.get_index ~downloader ~sigchecker source
@@ -192,7 +187,7 @@ let main () =
   let mode =
     match mode with
     | `List ->                          (* --list *)
-      List_entries.list_entries ~list_format ~sources index;
+      List_entries.list_entries ~list_format:cmdline.list_format ~sources index;
       exit 0
 
     | `Print_cache ->                   (* --print-cache *)
@@ -220,7 +215,7 @@ let main () =
           fun (name,
                { Index.revision = revision; file_uri = file_uri;
                  proxy = proxy }) ->
-            let template = name, arch, revision in
+            let template = name, cmdline.arch, revision in
             message (f_"Downloading: %s") file_uri;
             let progress_bar = not (quiet ()) in
             ignore (Downloader.download downloader ~template ~progress_bar
@@ -240,18 +235,18 @@ let main () =
           fun (name, { Index.aliases = aliases }) ->
             match aliases with
             | None -> false
-            | Some l -> List.mem arg l
+            | Some l -> List.mem cmdline.arg l
         ) index in
         fst item
-    with Not_found -> arg in
+    with Not_found -> cmdline.arg in
   let item =
     try List.find (
       fun (name, { Index.arch = a }) ->
-        name = arg && arch = normalize_arch a
+        name = arg && cmdline.arch = normalize_arch a
     ) index
     with Not_found ->
       error (f_"cannot find os-version '%s' with architecture '%s'.\nUse --list to list available guest types.")
-        arg arch in
+        arg cmdline.arch in
   let entry = snd item in
   let sigchecker = entry.Index.sigchecker in
 
@@ -278,7 +273,7 @@ let main () =
     let template, delete_on_exit =
       let { Index.revision = revision; file_uri = file_uri;
             proxy = proxy } = entry in
-      let template = arg, arch, revision in
+      let template = arg, cmdline.arch, revision in
       message (f_"Downloading: %s") file_uri;
       let progress_bar = not (quiet ()) in
       Downloader.download downloader ~template ~progress_bar ~proxy
@@ -328,7 +323,7 @@ let main () =
 
   (* Planner: Goal. *)
   let output_filename, output_format =
-    match output, format with
+    match cmdline.output, cmdline.format with
     | None, None -> sprintf "%s.img" arg, "raw"
     | None, Some "raw" -> sprintf "%s.img" arg, "raw"
     | None, Some format -> sprintf "%s.%s" arg format, format
@@ -353,7 +348,7 @@ let main () =
     let { Index.size = original_image_size } = entry in
 
     let size =
-      match size with
+      match cmdline.size with
       | Some size -> size
       (* --size parameter missing, output to file: use original image size *)
       | None when not output_is_block_dev -> original_image_size
@@ -381,6 +376,8 @@ let main () =
 
     goal_must, goal_must_not in
 
+  let cache_dir = (open_guestfs ())#get_cachedir () in
+
   (* Planner: Transitions. *)
   let transitions itags =
     let is t = List.mem_assoc t itags in
@@ -397,7 +394,7 @@ let main () =
     (* Since the final plan won't run in parallel, we don't only need
      * to choose unique tempfiles per transition, so this is OK:
      *)
-    let tempfile = Filename.temp_file "vb" ".img" in
+    let tempfile = Filename.temp_file ~temp_dir:cache_dir "vb" ".img" in
     unlink_on_exit tempfile;
 
     (* Always possible to copy from one place to another.  The only
@@ -526,7 +523,7 @@ let main () =
    * if it's block device, or if --no-delete-on-failure is set.
    *)
   let delete_output_file =
-    ref (delete_on_failure && not output_is_block_dev) in
+    ref (cmdline.delete_on_failure && not output_is_block_dev) in
   let delete_file () =
     if !delete_output_file then
       try unlink output_filename with _ -> ()
@@ -540,16 +537,14 @@ let main () =
       let ifile = List.assoc `Filename itags in
       let ofile = List.assoc `Filename otags in
       message (f_"Copying");
-      let cmd = sprintf "cp %s %s" (quote ifile) (quote ofile) in
-      if verbose () then printf "%s\n%!" cmd;
-      if Sys.command cmd <> 0 then exit 1
+      let cmd = [ "cp"; ifile; ofile ] in
+      if run_command cmd <> 0 then exit 1
 
     | itags, `Rename, otags ->
       let ifile = List.assoc `Filename itags in
       let ofile = List.assoc `Filename otags in
-      let cmd = sprintf "mv %s %s" (quote ifile) (quote ofile) in
-      if verbose () then printf "%s\n%!" cmd;
-      if Sys.command cmd <> 0 then exit 1
+      let cmd = [ "mv"; ifile; ofile ] in
+      if run_command cmd <> 0 then exit 1
 
     | itags, `Pxzcat, otags ->
       let ifile = List.assoc `Filename itags in
@@ -570,27 +565,23 @@ let main () =
         (human_size osize);
       let preallocation = if oformat = "qcow2" then Some "metadata" else None in
       let () =
-        let g = new G.guestfs () in
-        if trace () then g#set_trace true;
-        if verbose () then g#set_verbose true;
+        let g = open_guestfs () in
         g#disk_create ?preallocation ofile oformat osize in
-      let cmd =
-        sprintf "virt-resize%s%s%s --output-format %s%s%s %s %s"
-          (if verbose () then " --verbose" else " --quiet")
-          (if is_block_device ofile then " --no-sparse" else "")
-          (match iformat with
-          | None -> ""
-          | Some iformat -> sprintf " --format %s" (quote iformat))
-          (quote oformat)
-          (match expand with
-          | None -> ""
-          | Some expand -> sprintf " --expand %s" (quote expand))
-          (match lvexpand with
-          | None -> ""
-          | Some lvexpand -> sprintf " --lv-expand %s" (quote lvexpand))
-          (quote ifile) (quote ofile) in
-      if verbose () then printf "%s\n%!" cmd;
-      if Sys.command cmd <> 0 then exit 1
+      let cmd = [ "virt-resize" ] @
+        (if verbose () then [ "--verbose" ] else [ "--quiet" ]) @
+        (if is_block_device ofile then [ "--no-sparse" ] else []) @
+        (match iformat with
+        | None -> []
+        | Some iformat -> [ "--format"; iformat ]) @
+        [ "--output-format"; oformat ] @
+        (match expand with
+        | None -> []
+        | Some expand -> [ "--expand"; expand ]) @
+        (match lvexpand with
+        | None -> []
+        | Some lvexpand -> [ "--lv-expand"; lvexpand ]) @
+        [ "--unknown-filesystems"; "error"; ifile; ofile ] in
+      if run_command cmd <> 0 then exit 1
 
     | itags, `Disk_resize, otags ->
       let ofile = List.assoc `Filename otags in
@@ -600,8 +591,7 @@ let main () =
         (human_size osize);
       let cmd = sprintf "qemu-img resize %s %Ld%s"
         (quote ofile) osize (if verbose () then "" else " >/dev/null") in
-      if verbose () then printf "%s\n%!" cmd;
-      if Sys.command cmd <> 0 then exit 1
+      if shell_command cmd <> 0 then exit 1
 
     | itags, `Convert, otags ->
       let ifile = List.assoc `Filename itags in
@@ -619,20 +609,17 @@ let main () =
         | Some iformat -> sprintf " -f %s" (quote iformat))
         (quote ifile) (quote oformat) (quote (qemu_input_filename ofile))
         (if verbose () then "" else " >/dev/null 2>&1") in
-      if verbose () then printf "%s\n%!" cmd;
-      if Sys.command cmd <> 0 then exit 1
+      if shell_command cmd <> 0 then exit 1
   ) plan;
 
   (* Now mount the output disk so we can make changes. *)
   message (f_"Opening the new disk");
   let g =
-    let g = new G.guestfs () in
-    if trace () then g#set_trace true;
-    if verbose () then g#set_verbose true;
+    let g = open_guestfs () in
 
-    (match memsize with None -> () | Some memsize -> g#set_memsize memsize);
-    (match smp with None -> () | Some smp -> g#set_smp smp);
-    g#set_network network;
+    may g#set_memsize cmdline.memsize;
+    may g#set_smp cmdline.smp;
+    g#set_network cmdline.network;
 
     (* Make sure to turn SELinux off to avoid awkward interactions
      * between the appliance kernel and applications/libraries interacting
@@ -647,7 +634,7 @@ let main () =
     List.iter (
       fun (format, file) ->
         g#add_drive_opts ?format ~readonly:true file;
-    ) attach;
+    ) cmdline.attach;
 
     g#launch ();
 
@@ -671,7 +658,7 @@ let main () =
       error (f_"no guest operating systems or multiboot OS found in this disk image\nThis is a failure of the source repository.  Use -v for more information.")
   in
 
-  Customize_run.run g root ops;
+  Customize_run.run g root cmdline.ops;
 
   (* Collect some stats about the final output file.
    * Notes:
@@ -725,7 +712,7 @@ let main () =
    * and therefore bypasses the host cache).  In general you should not
    * use cache=none.
    *)
-  if sync then
+  if cmdline.sync then
     Fsync.file output_filename;
 
   (* Now that we've finished the build, don't delete the output file on
@@ -737,8 +724,6 @@ let main () =
   Pervasives.flush Pervasives.stdout;
   Pervasives.flush Pervasives.stderr;
 
-  match stats with
-  | None -> ()
-  | Some stats -> print_string stats
+  may print_string stats
 
 let () = run_main_and_handle_errors main

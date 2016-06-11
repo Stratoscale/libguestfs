@@ -1,5 +1,5 @@
 (* virt-sysprep
- * Copyright (C) 2012-2015 Red Hat Inc.
+ * Copyright (C) 2012-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -173,7 +173,7 @@ read the man page virt-sysprep(1).
                     ~readonly ?discard
                     ?libvirturi ~allowuuid ~readonlydisk
                     dom)
-      | _, Some _ ->
+      | _::_, Some _ ->
         error (f_"you cannot give -a and -d options together.  Read virt-sysprep(1) man page for further information.")
       | files, None ->
         fun g readonly ->
@@ -211,9 +211,7 @@ read the man page virt-sysprep(1).
     message (f_"Examining the guest ...");
 
     (* Connect to libguestfs. *)
-    let g = new G.guestfs () in
-    if trace () then g#set_trace true;
-    if verbose () then g#set_verbose true;
+    let g = open_guestfs () in
     add g dryrun;
     g#launch ();
 

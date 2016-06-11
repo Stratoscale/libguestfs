@@ -20,6 +20,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
@@ -79,18 +80,18 @@ static char *map_registry_disk_blob (guestfs_h *g, const void *blob);
 static int
 is_systemroot (guestfs_h *const g, const char *systemroot)
 {
-  char path[256];
+  CLEANUP_FREE char *path1 = NULL, *path2 = NULL, *path3 = NULL;
 
-  snprintf (path, sizeof path, "%s/system32", systemroot);
-  if (!guestfs_int_is_dir_nocase (g, path))
+  path1 = safe_asprintf (g, "%s/system32", systemroot);
+  if (!guestfs_int_is_dir_nocase (g, path1))
     return 0;
 
-  snprintf (path, sizeof path, "%s/system32/config", systemroot);
-  if (!guestfs_int_is_dir_nocase (g, path))
+  path2 = safe_asprintf (g, "%s/system32/config", systemroot);
+  if (!guestfs_int_is_dir_nocase (g, path2))
     return 0;
 
-  snprintf (path, sizeof path, "%s/system32/cmd.exe", systemroot);
-  if (!guestfs_int_is_file_nocase (g, path))
+  path3 = safe_asprintf (g, "%s/system32/cmd.exe", systemroot);
+  if (!guestfs_int_is_file_nocase (g, path3))
     return 0;
 
   return 1;
@@ -238,9 +239,10 @@ check_windows_arch (guestfs_h *g, struct inspect_fs *fs)
     return -1;
 
   char *arch = guestfs_file_architecture (g, cmd_exe_path);
+  if (!arch)
+    return -1;
 
-  if (arch)
-    fs->arch = arch;        /* freed by guestfs_int_free_inspect_info */
+  fs->arch = arch;        /* freed by guestfs_int_free_inspect_info */
 
   return 0;
 }
@@ -278,6 +280,7 @@ check_windows_software_registry (guestfs_h *g, struct inspect_fs *fs)
     { "Microsoft", "Windows NT", "CurrentVersion" };
   size_t i;
   CLEANUP_FREE_HIVEX_VALUE_LIST struct guestfs_hivex_value_list *values = NULL;
+  bool ignore_currentversion = false;
 
   if (guestfs_hivex_open (g, software_path,
                           GUESTFS_HIVEX_OPEN_VERBOSE, g->verbose, -1) == -1)
@@ -308,7 +311,43 @@ check_windows_software_registry (guestfs_h *g, struct inspect_fs *fs)
       if (!fs->product_name)
         goto out;
     }
-    else if (STRCASEEQ (key, "CurrentVersion")) {
+    else if (STRCASEEQ (key, "CurrentMajorVersionNumber")) {
+      size_t vsize;
+      int64_t vtype = guestfs_hivex_value_type (g, value);
+      CLEANUP_FREE char *vbuf = guestfs_hivex_value_value (g, value, &vsize);
+
+      if (vbuf == NULL)
+        goto out;
+      if (vtype != 4 || vsize != 4) {
+        error (g, "hivex: expected CurrentVersion\\%s to be a DWORD field",
+               "CurrentMajorVersionNumber");
+        goto out;
+      }
+
+      fs->major_version = le32toh (*(int32_t *)vbuf);
+
+      /* Ignore CurrentVersion if we see it after this key. */
+      ignore_currentversion = true;
+    }
+    else if (STRCASEEQ (key, "CurrentMinorVersionNumber")) {
+      size_t vsize;
+      int64_t vtype = guestfs_hivex_value_type (g, value);
+      CLEANUP_FREE char *vbuf = guestfs_hivex_value_value (g, value, &vsize);
+
+      if (vbuf == NULL)
+        goto out;
+      if (vtype != 4 || vsize != 4) {
+        error (g, "hivex: expected CurrentVersion\\%s to be a DWORD field",
+               "CurrentMinorVersionNumber");
+        goto out;
+      }
+
+      fs->minor_version = le32toh (*(int32_t *)vbuf);
+
+      /* Ignore CurrentVersion if we see it after this key. */
+      ignore_currentversion = true;
+    }
+    else if (!ignore_currentversion && STRCASEEQ (key, "CurrentVersion")) {
       CLEANUP_FREE char *version = guestfs_hivex_value_utf8 (g, value);
       if (!version)
         goto out;
@@ -450,7 +489,6 @@ check_windows_system_registry (guestfs_h *g, struct inspect_fs *fs)
       /* Get the binary value.  Is it a fixed disk? */
       CLEANUP_FREE char *blob = NULL;
       char *device;
-      size_t len;
       int64_t type;
 
       type = guestfs_hivex_value_type (g, v);

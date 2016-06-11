@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,10 +22,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <libintl.h>
-
-#ifdef HAVE_LIBVIRT
-#include <libvirt/libvirt.h>
-#endif
 
 #include <libxml/parser.h>
 #include <libxml/xmlversion.h>
@@ -422,6 +418,7 @@ static int
 shutdown_backend (guestfs_h *g, int check_for_errors)
 {
   int ret = 0;
+  size_t i;
 
   if (g->state == CONFIG)
     return 0;
@@ -443,6 +440,12 @@ shutdown_backend (guestfs_h *g, int check_for_errors)
   }
 
   guestfs_int_free_drives (g);
+
+  for (i = 0; i < g->nr_features; ++i)
+    free (g->features[i].group);
+  free (g->features);
+  g->features = NULL;
+  g->nr_features = 0;
 
   g->state = CONFIG;
 

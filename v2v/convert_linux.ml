@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -524,8 +524,13 @@ let rec convert ~keep_serial_console (g : G.guestfs) inspect source =
       let lines = filter_map (
         fun line ->
           if Str.string_match rex line 0 then (
-            let vboxuninstall = Str.matched_group 1 line ^ "/uninstall.sh" in
-            Some vboxuninstall
+            let path = Str.matched_group 1 line in
+            let path = Utils.shell_unquote path in
+            if String.length path >= 1 && path.[0] = '/' then (
+              let vboxuninstall = path ^ "/uninstall.sh" in
+              Some vboxuninstall
+            )
+            else None
           )
           else None
       ) lines in
@@ -828,15 +833,20 @@ let rec convert ~keep_serial_console (g : G.guestfs) inspect source =
         | Some x -> x
         | None -> invalid_arg (sprintf "invalid module path: %s" modpath) in
 
-      if g#is_file ~followsymlinks:true "/sbin/dracut" then (
+      let run_dracut_command dracut_path =
         (* Dracut. *)
         let args =
-          [ "/sbin/dracut" ]
-          @ (if verbose () then [ "--verbose" ] else [])
+          dracut_path ::
+            (if verbose () then [ "--verbose" ] else [])
           @ [ "--add-drivers"; String.concat " " modules; initrd; mkinitrd_kv ]
         in
         ignore (g#command (Array.of_list args))
-      )
+      in
+
+      if g#is_file ~followsymlinks:true "/sbin/dracut" then
+        run_dracut_command "/sbin/dracut"
+      else if g#is_file ~followsymlinks:true "/usr/bin/dracut" then
+        run_dracut_command "/usr/bin/dracut"
       else if family = `SUSE_family
            && g#is_file ~followsymlinks:true "/sbin/mkinitrd" then (
         ignore (
@@ -1104,7 +1114,7 @@ let rec convert ~keep_serial_console (g : G.guestfs) inspect source =
 
     g#aug_save ();
 
-    (* If we updated the X driver, checkthat X itself is installed,
+    (* If we updated the X driver, check that X itself is installed,
      * and warn if not.  Old virt-v2v used to attempt to install X here
      * but that way lies insanity and ruin.
      *)
@@ -1426,6 +1436,7 @@ let rec convert ~keep_serial_console (g : G.guestfs) inspect source =
 
   guestcaps
 
+(* Register this conversion module. *)
 let () =
   let other_matching = function
     | { i_type = "linux" } -> true

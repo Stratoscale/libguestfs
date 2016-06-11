@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -195,7 +195,7 @@ object
     (* If --qemu-boot option was specified then we should boot the guest. *)
     if qemu_boot then (
       let cmd = sprintf "%s &" (quote file) in
-      ignore (Sys.command cmd)
+      ignore (shell_command cmd)
     )
 end
 

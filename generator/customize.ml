@@ -23,6 +23,8 @@ open Printf
 open Docstrings
 open Pr
 
+let generate_header = generate_header ~inputs:["generator/customize.ml"]
+
 (* Command-line arguments used by virt-customize, virt-builder and
  * virt-sysprep.
  *)
@@ -419,7 +421,7 @@ This command performs a L<touch(1)>-like operation on C<FILE>.";
   { op_name = "update";
     op_type = Unit;
     op_discrim = "`Update";
-    op_shortdesc = "Update core packages";
+    op_shortdesc = "Update packages";
     op_pod_longdesc = "\
 Do the equivalent of C<yum update>, C<apt-get upgrade>, or whatever
 command is required to update the packages already installed in the
@@ -515,13 +517,17 @@ C</etc/pam.d/common-password> (Debian, Ubuntu).";
     flag_pod_longdesc = "\
 Relabel files in the guest so that they have the correct SELinux label.
 
+This will attempt to relabel files immediately, but if the operation fails
+this will instead touch F</.autorelabel> on the image to schedule a
+relabel operation for the next time the image boots.
+
 You should only use this option for guests which support SELinux.";
   };
 
   { flag_name = "sm-credentials";
     flag_type = FlagSMCredentials "SELECTOR";
     flag_ml_var = "sm_credentials";
-    flag_shortdesc = "credentials for subscription-manager";
+    flag_shortdesc = "Credentials for subscription-manager";
     flag_pod_longdesc = "\
 Set the credentials for C<subscription-manager>.
 

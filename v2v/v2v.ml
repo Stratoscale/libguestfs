@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,46 +27,127 @@ open Common_utils
 open Types
 open Utils
 
-(* Mountpoint stats, used for free space estimation. *)
-type mpstat = {
-  mp_dev : string;                      (* Filesystem device (eg. /dev/sda1) *)
-  mp_path : string;                     (* Guest mountpoint (eg. /boot) *)
-  mp_statvfs : Guestfs.statvfs;         (* Free space stats. *)
-  mp_vfs : string;                      (* VFS type (eg. "ext4") *)
-}
+open Cmdline
 
-let print_mpstat chan { mp_dev = dev; mp_path = path;
-                        mp_statvfs = s; mp_vfs = vfs } =
-  fprintf chan "mountpoint statvfs %s %s (%s):\n" dev path vfs;
-  fprintf chan "  bsize=%Ld blocks=%Ld bfree=%Ld bavail=%Ld\n"
-    s.G.bsize s.G.blocks s.G.bfree s.G.bavail
+type conversion_mode =
+    | Copying of overlay list * target list
+    | In_place
 
 let () = Random.self_init ()
 
 let rec main () =
   (* Handle the command line. *)
-  let input, output,
-    debug_overlays, do_copy, network_map, no_trim,
-    output_alloc, output_format, output_name, print_source, root_choice =
-    Cmdline.parse_cmdline () in
+  let cmdline, input, output = parse_cmdline () in
 
   (* Print the version, easier than asking users to tell us. *)
-  if verbose () then
-    printf "%s: %s %s (%s)\n%!"
-      prog Config.package_name Config.package_version Config.host_cpu;
+  debug "%s: %s %s (%s)"
+        prog Guestfs_config.package_name
+        Guestfs_config.package_version Guestfs_config.host_cpu;
 
+  let source = open_source cmdline input in
+  let source = amend_source cmdline source in
+
+  let conversion_mode =
+    if not cmdline.in_place then (
+      let overlays = create_overlays source.s_disks in
+      let targets = init_targets cmdline output source overlays in
+      Copying (overlays, targets)
+    )
+    else In_place in
+
+  (match conversion_mode with
+   | Copying _ -> message (f_"Opening the overlay")
+   | In_place -> message (f_"Opening the source VM")
+  );
+
+  let g = open_guestfs ~identifier:"v2v" () in
+  g#set_network true;
+  (match conversion_mode with
+   | Copying (overlays, _) -> populate_overlays g overlays
+   | In_place -> populate_disks g source.s_disks
+  );
+
+  g#launch ();
+
+  (* Inspection - this also mounts up the filesystems. *)
+  (match conversion_mode with
+   | Copying _ -> message (f_"Inspecting the overlay")
+   | In_place -> message (f_"Inspecting the source VM")
+  );
+  let inspect = Inspect_source.inspect_source cmdline.root_choice g in
+
+  let mpstats = get_mpstats g in
+  check_free_space mpstats;
+  (match conversion_mode with
+   | Copying (_, targets) ->
+       check_target_free_space mpstats source targets output
+   | In_place -> ()
+  );
+
+  (* Conversion. *)
+  let guestcaps =
+    let keep_serial_console = output#keep_serial_console in
+    do_convert g inspect source keep_serial_console in
+
+  g#umount_all ();
+
+  if cmdline.no_trim <> ["*"] &&
+       (cmdline.do_copy || cmdline.debug_overlays) then (
+    (* Doing fstrim on all the filesystems reduces the transfer size
+     * because unused blocks are marked in the overlay and thus do
+     * not have to be copied.
+     *)
+    message (f_"Mapping filesystem data to avoid copying unused and blank areas");
+    do_fstrim g cmdline.no_trim inspect;
+  );
+
+  (match conversion_mode with
+   | Copying _ -> message (f_"Closing the overlay")
+   | In_place -> message (f_"Closing the source VM")
+  );
+  g#umount_all ();
+  g#shutdown ();
+  g#close ();
+
+  (* Copy overlays to target (for [--in-place] this does nothing). *)
+  (match conversion_mode with
+   | In_place -> ()
+   | Copying (overlays, targets) ->
+       let target_firmware =
+         get_target_firmware inspect guestcaps source output in
+
+       message (f_"Assigning disks to buses");
+       let target_buses = target_bus_assignment source targets guestcaps in
+       debug "%s" (string_of_target_buses target_buses);
+
+       let targets =
+         if not cmdline.do_copy then targets
+         else copy_targets cmdline targets input output in
+
+       (* Create output metadata. *)
+       message (f_"Creating output metadata");
+       output#create_metadata source targets target_buses guestcaps inspect
+                             target_firmware;
+
+       if cmdline.debug_overlays then preserve_overlays overlays source.s_name;
+
+       delete_target_on_exit := false  (* Don't delete target on exit. *)
+  );
+  message (f_"Finishing off")
+
+and open_source cmdline input =
   message (f_"Opening the source %s") input#as_options;
   let source = input#source () in
 
   (* Print source and stop. *)
-  if print_source then (
+  if cmdline.print_source then (
     printf (f_"Source guest information (--print-source option):\n");
     printf "\n";
     printf "%s\n" (string_of_source source);
     exit 0
   );
 
-  if verbose () then printf "%s%!" (string_of_source source);
+  debug "%s" (string_of_source source);
 
   (match source.s_hypervisor with
   | OtherHV hv ->
@@ -84,9 +165,12 @@ let rec main () =
       assert (disk.s_qemu_uri <> "");
   ) source.s_disks;
 
+  source
+
+and amend_source cmdline source =
   (* Map source name. *)
   let source =
-    match output_name with
+    match cmdline.output_name with
     | None -> source
     (* Note the s_orig_name field retains the original name in case we
      * need it for some reason.
@@ -94,106 +178,86 @@ let rec main () =
     | Some name -> { source with s_name = name } in
 
   (* Map networks and bridges. *)
-  let source =
-    let { s_nics = nics } = source in
-    let nics = List.map (
-      fun ({ s_vnet_type = t; s_vnet = vnet } as nic) ->
+  let nics = List.map (
+    fun ({ s_vnet_type = t; s_vnet = vnet } as nic) ->
+      try
+        (* Look for a --network or --bridge parameter which names this
+         * network/bridge (eg. --network in:out).
+         *)
+        let new_name = NetworkMap.find (t, Some vnet) cmdline.network_map in
+        { nic with s_vnet = new_name }
+      with Not_found ->
         try
-          (* Look for a --network or --bridge parameter which names this
-           * network/bridge (eg. --network in:out).
-           *)
-          let new_name = List.assoc (t, vnet) network_map in
+          (* Not found, so look for a default mapping (eg. --network out). *)
+          let new_name = NetworkMap.find (t, None) cmdline.network_map in
           { nic with s_vnet = new_name }
         with Not_found ->
-          try
-            (* Not found, so look for a default mapping (eg. --network out). *)
-            let new_name = List.assoc (t, "") network_map in
-            { nic with s_vnet = new_name }
-          with Not_found ->
-            (* Not found, so return the original NIC unchanged. *)
-            nic
-    ) nics in
-    { source with s_nics = nics } in
+          (* Not found, so return the original NIC unchanged. *)
+          nic
+  ) source.s_nics in
 
-  (* Create a qcow2 v3 overlay to protect the source image(s).  There
-   * is a specific reason to use the newer qcow2 variant: Because the
-   * L2 table can store zero clusters efficiently, and because
-   * discarded blocks are stored as zero clusters, this should allow us
-   * to fstrim/blkdiscard and avoid copying significant parts of the
-   * data over the wire.
-   *)
+  { source with s_nics = nics }
+
+(* Create a qcow2 v3 overlay to protect the source image(s). *)
+and create_overlays src_disks =
   message (f_"Creating an overlay to protect the source from being modified");
-  let overlay_dir = (new Guestfs.guestfs ())#get_cachedir () in
-  let overlays =
-    List.map (
-      fun ({ s_qemu_uri = qemu_uri; s_format = format } as source) ->
-        let overlay_file =
-          Filename.temp_file ~temp_dir:overlay_dir "v2vovl" ".qcow2" in
-        unlink_on_exit overlay_file;
+  let overlay_dir = (open_guestfs ())#get_cachedir () in
+  List.mapi (
+    fun i ({ s_qemu_uri = qemu_uri; s_format = format } as source) ->
+      let overlay_file =
+        Filename.temp_file ~temp_dir:overlay_dir "v2vovl" ".qcow2" in
+      unlink_on_exit overlay_file;
 
-        let options =
-          "compat=1.1" ^
-            (match format with None -> ""
-            | Some fmt -> ",backing_fmt=" ^ fmt) in
-        let cmd =
-          sprintf "qemu-img create -q -f qcow2 -b %s -o %s %s"
-            (quote qemu_uri) (quote options) overlay_file in
-        if verbose () then printf "%s\n%!" cmd;
-        if Sys.command cmd <> 0 then
-          error (f_"qemu-img command failed, see earlier errors");
+      (* There is a specific reason to use the newer qcow2 variant:
+       * Because the L2 table can store zero clusters efficiently, and
+       * because discarded blocks are stored as zero clusters, this
+       * should allow us to fstrim/blkdiscard and avoid copying
+       * significant parts of the data over the wire.
+       *)
+      let options =
+        "compat=1.1" ^
+          (match format with None -> ""
+                           | Some fmt -> ",backing_fmt=" ^ fmt) in
+      let cmd = [ "qemu-img"; "create"; "-q"; "-f"; "qcow2"; "-b"; qemu_uri;
+                  "-o"; options; overlay_file ] in
+      if run_command cmd <> 0 then
+        error (f_"qemu-img command failed, see earlier errors");
 
-        (* Sanity check created overlay (see below). *)
-        if not ((new G.guestfs ())#disk_has_backing_file overlay_file) then
-          error (f_"internal error: qemu-img did not create overlay with backing file");
+      (* Sanity check created overlay (see below). *)
+      if not ((open_guestfs ())#disk_has_backing_file overlay_file) then
+        error (f_"internal error: qemu-img did not create overlay with backing file");
 
-        overlay_file, source
-    ) source.s_disks in
+      let sd = "sd" ^ drive_name i in
 
-  (* Open the guestfs handle. *)
-  message (f_"Opening the overlay");
-  let g = new G.guestfs () in
-  g#set_identifier "v2v";
-  if trace () then g#set_trace true;
-  if verbose () then g#set_verbose true;
-  g#set_network true;
-  List.iter (
-    fun (overlay_file, _) ->
-      g#add_drive_opts overlay_file
-        ~format:"qcow2" ~cachemode:"unsafe" ~discard:"besteffort"
-        ~copyonread:true
-  ) overlays;
+      let vsize = (open_guestfs ())#disk_virtual_size overlay_file in
 
-  g#launch ();
+      (* If the virtual size is 0, then something went badly wrong.
+       * It could be RHBZ#1283588 or some other problem with qemu.
+       *)
+      if vsize = 0L then
+        error (f_"guest disk %s appears to be zero bytes in size.\n\nThere could be several reasons for this:\n\nCheck that the guest doesn't really have a zero-sized disk.  virt-v2v cannot convert such a guest.\n\nIf you are converting a guest from an ssh source and the guest has a disk on a block device (eg. on a host partition or host LVM LV), then conversions of this type are not supported.  See \"XEN OR SSH CONVERSIONS FROM BLOCK DEVICES\" in the virt-v2v(1) manual for a workaround.")
+              sd;
 
-  (* Create the list of overlays structs.  Query each disk for its
-   * virtual size, and fill in a few other fields.
-   *)
-  let overlays =
-    mapi (
-      fun i (overlay_file, source) ->
-        let sd = "sd" ^ drive_name i in
-        let dev = "/dev/" ^ sd in
-        let vsize = g#blockdev_getsize64 dev in
+      { ov_overlay_file = overlay_file; ov_sd = sd;
+        ov_virtual_size = vsize; ov_source = source }
+  ) src_disks
 
-        { ov_overlay_file = overlay_file; ov_sd = sd;
-          ov_virtual_size = vsize; ov_source = source }
-    ) overlays in
-
-  (* Work out where we will write the final output.  Do this early
-   * just so we can display errors to the user before doing too much
-   * work.
-   *)
+(* Work out where we will write the final output.  Do this early
+ * just so we can display errors to the user before doing too much
+ * work.
+ *)
+and init_targets cmdline output source overlays =
   message (f_"Initializing the target %s") output#as_options;
   let targets =
     List.map (
       fun ov ->
         (* What output format should we use? *)
         let format =
-          match output_format, ov.ov_source.s_format with
+          match cmdline.output_format, ov.ov_source.s_format with
           | Some format, _ -> format    (* -of overrides everything *)
           | None, Some format -> format (* same as backing format *)
           | None, None ->
-            error (f_"disk %s (%s) has no defined format.\n\nThe input metadata did not define the disk format (eg. raw/qcow2/etc) of this disk, and so virt-v2v will try to autodetect the format when reading it.\n\nHowever because the input format was not defined, we do not know what output format you want to use.  You have two choices: either define the original format in the source metadata, or use the '-of' option to force the output format") ov.ov_sd ov.ov_source.s_qemu_uri in
+            error (f_"disk %s (%s) has no defined format.\n\nThe input metadata did not define the disk format (eg. raw/qcow2/etc) of this disk, and so virt-v2v will try to autodetect the format when reading it.\n\nHowever because the input format was not defined, we do not know what output format you want to use.  You have two choices: either define the original format in the source metadata, or use the '-of' option to force the output format.") ov.ov_sd ov.ov_source.s_qemu_uri in
 
         (* What really happens here is that the call to #disk_create
          * below fails if the format is not raw or qcow2.  We would
@@ -205,6 +269,10 @@ let rec main () =
         if format <> "raw" && format <> "qcow2" then
           error (f_"output format should be 'raw' or 'qcow2'.\n\nUse the '-of <format>' option to select a different output format for the converted guest.\n\nOther output formats are not supported at the moment, although might be considered in future.");
 
+        (* Only allow compressed with qcow2. *)
+        if cmdline.compressed && format <> "qcow2" then
+          error (f_"the --compressed flag is only allowed when the output format is qcow2 (-of qcow2)");
+
         (* output#prepare_targets will fill in the target_file field.
          * estimate_target_size will fill in the target_estimated_size field.
          * actual_target_size will fill in the target_actual_size field.
@@ -214,16 +282,28 @@ let rec main () =
           target_actual_size = None;
           target_overlay = ov }
     ) overlays in
-  let targets = output#prepare_targets source targets in
 
-  (* Inspection - this also mounts up the filesystems. *)
-  message (f_"Inspecting the overlay");
-  let inspect = inspect_source g root_choice in
+  output#prepare_targets source targets
 
-  (* The guest free disk space check and the target free space
-   * estimation both require statvfs information from mountpoints, so
-   * get that information first.
-   *)
+(* Populate guestfs handle with qcow2 overlays. *)
+and populate_overlays g overlays =
+  List.iter (
+    fun ({ov_overlay_file = overlay_file}) ->
+      g#add_drive_opts overlay_file
+        ~format:"qcow2" ~cachemode:"unsafe" ~discard:"besteffort"
+        ~copyonread:true
+  ) overlays
+
+(* Populate guestfs handle with source disks.  Only used for [--in-place]. *)
+and populate_disks g src_disks =
+  List.iter (
+    fun ({s_qemu_uri = qemu_uri; s_format = format}) ->
+      g#add_drive_opts qemu_uri ?format ~cachemode:"unsafe"
+                          ~discard:"besteffort"
+  ) src_disks
+
+(* Collect statvfs information from the guest mountpoints. *)
+and get_mpstats g =
   let mpstats = List.map (
     fun (dev, path) ->
       let statvfs = g#statvfs path in
@@ -237,366 +317,14 @@ let rec main () =
     List.iter (print_mpstat Pervasives.stdout) mpstats
   );
 
-  (* Check there is enough free space to perform conversion. *)
-  message (f_"Checking for sufficient free disk space in the guest");
-  check_free_space mpstats;
-
-  (* Estimate space required on target for each disk.  Note this is a max. *)
-  message (f_"Estimating space required on target for each disk");
-  let targets = estimate_target_size mpstats targets in
-
-  output#check_target_free_space source targets;
-
-  (* Conversion. *)
-  let guestcaps =
-    (match inspect.i_product_name with
-    | "unknown" ->
-      message (f_"Converting the guest to run on KVM")
-    | prod ->
-      message (f_"Converting %s to run on KVM") prod
-    );
-
-    (* RHEV doesn't support serial console so remove any on conversion. *)
-    let keep_serial_console = output#keep_serial_console in
-
-    let conversion_name, convert =
-      try Modules_list.find_convert_module inspect
-      with Not_found ->
-        error (f_"virt-v2v is unable to convert this guest type (%s/%s)")
-          inspect.i_type inspect.i_distro in
-    if verbose () then printf "picked conversion module %s\n%!" conversion_name;
-    let guestcaps = convert ~keep_serial_console g inspect source in
-    if verbose () then printf "%s%!" (string_of_guestcaps guestcaps);
-    guestcaps in
-
-  (* Did we manage to install virtio drivers? *)
-  if not (quiet ()) then (
-    if guestcaps.gcaps_block_bus = Virtio_blk then
-      info (f_"This guest has virtio drivers installed.")
-    else
-      info (f_"This guest does not have virtio drivers installed.");
-  );
-
-  g#umount_all ();
-
-  if no_trim <> ["*"] && (do_copy || debug_overlays) then (
-    (* Doing fstrim on all the filesystems reduces the transfer size
-     * because unused blocks are marked in the overlay and thus do
-     * not have to be copied.
-     *)
-    message (f_"Mapping filesystem data to avoid copying unused and blank areas");
-    do_fstrim g no_trim inspect;
-  );
-
-  message (f_"Closing the overlay");
-  g#umount_all ();
-  g#shutdown ();
-  g#close ();
-
-  (* Does the guest require UEFI on the target? *)
-  message (f_"Checking if the guest needs BIOS or UEFI to boot");
-  let target_firmware =
-    match source.s_firmware with
-    | BIOS -> TargetBIOS
-    | UEFI -> TargetUEFI
-    | UnknownFirmware ->
-       if inspect.i_uefi then TargetUEFI else TargetBIOS in
-  let supported_firmware = output#supported_firmware in
-  if not (List.mem target_firmware supported_firmware) then
-    error (f_"this guest cannot run on the target, because the target does not support %s firmware (supported firmware on target: %s)")
-          (string_of_target_firmware target_firmware)
-          (String.concat " "
-            (List.map string_of_target_firmware supported_firmware));
-
-  output#check_target_firmware guestcaps target_firmware;
-
-  (match target_firmware with
-   | TargetBIOS -> ()
-   | TargetUEFI -> info (f_"This guest requires UEFI on the target to boot."));
-
-  message (f_"Assigning disks to buses");
-  let target_buses = target_bus_assignment source targets guestcaps in
-  if verbose () then
-    printf "%s%!" (string_of_target_buses target_buses);
-
-  let delete_target_on_exit = ref true in
-
-  let targets =
-    if not do_copy then targets
-    else (
-      (* Copy the source to the output. *)
-      at_exit (fun () ->
-        if !delete_target_on_exit then (
-          List.iter (
-            fun t -> try unlink t.target_file with _ -> ()
-          ) targets
-        )
-      );
-      let nr_disks = List.length targets in
-      mapi (
-        fun i t ->
-          message (f_"Copying disk %d/%d to %s (%s)")
-            (i+1) nr_disks t.target_file t.target_format;
-          if verbose () then printf "%s%!" (string_of_target t);
-
-          (* We noticed that qemu sometimes corrupts the qcow2 file on
-           * exit.  This only seemed to happen with lazy_refcounts was
-           * used.  The symptom was that the header wasn't written back
-           * to the disk correctly and the file appeared to have no
-           * backing file.  Just sanity check this here.
-           *)
-          let overlay_file = t.target_overlay.ov_overlay_file in
-          if not ((new G.guestfs ())#disk_has_backing_file overlay_file) then
-            error (f_"internal error: qemu corrupted the overlay file");
-
-          (* Give the input module a chance to adjust the parameters
-           * of the overlay/backing file.  This allows us to increase
-           * the readahead parameter when copying (see RHBZ#1151033 and
-           * RHBZ#1153589 for the gruesome details).
-           *)
-          input#adjust_overlay_parameters t.target_overlay;
-
-          (* It turns out that libguestfs's disk creation code is
-           * considerably more flexible and easier to use than
-           * qemu-img, so create the disk explicitly using libguestfs
-           * then pass the 'qemu-img convert -n' option so qemu reuses
-           * the disk.
-           *
-           * Also we allow the output mode to actually create the disk
-           * image.  This lets the output mode set ownership and
-           * permissions correctly if required.
-           *)
-          (* What output preallocation mode should we use? *)
-          let preallocation =
-            match t.target_format, output_alloc with
-            | ("raw"|"qcow2"), Sparse -> Some "sparse"
-            | ("raw"|"qcow2"), Preallocated -> Some "full"
-            | _ -> None (* ignore -oa flag for other formats *) in
-          let compat =
-            match t.target_format with "qcow2" -> Some "1.1" | _ -> None in
-          output#disk_create
-            t.target_file t.target_format t.target_overlay.ov_virtual_size
-            ?preallocation ?compat;
-
-          let cmd =
-            sprintf "qemu-img convert%s -n -f qcow2 -O %s %s %s"
-              (if not (quiet ()) then " -p" else "")
-              (quote t.target_format) (quote overlay_file)
-              (quote t.target_file) in
-          if verbose () then printf "%s\n%!" cmd;
-          let start_time = gettimeofday () in
-          if Sys.command cmd <> 0 then
-            error (f_"qemu-img command failed, see earlier errors");
-          let end_time = gettimeofday () in
-
-          (* Calculate the actual size on the target, returns an updated
-           * target structure.
-           *)
-          let t = actual_target_size t in
-
-          (* If verbose, print the virtual and real copying rates. *)
-          let elapsed_time = end_time -. start_time in
-          if verbose () && elapsed_time > 0. then (
-            let mbps size time =
-              Int64.to_float size /. 1024. /. 1024. *. 10. /. time
-            in
-
-            printf "virtual copying rate: %.1f M bits/sec\n%!"
-              (mbps t.target_overlay.ov_virtual_size elapsed_time);
-
-            match t.target_actual_size with
-            | None -> ()
-            | Some actual ->
-              printf "real copying rate: %.1f M bits/sec\n%!"
-                (mbps actual elapsed_time)
-          );
-
-          (* If verbose, find out how close the estimate was.  This is
-           * for developer information only - so we can increase the
-           * accuracy of the estimate.
-           *)
-          if verbose () then (
-            match t.target_estimated_size, t.target_actual_size with
-            | None, None | None, Some _ | Some _, None | Some _, Some 0L -> ()
-            | Some estimate, Some actual ->
-              let pc =
-                100. *. Int64.to_float estimate /. Int64.to_float actual
-                -. 100. in
-              printf "%s: estimate %Ld (%s) versus actual %Ld (%s): %.1f%%"
-                t.target_overlay.ov_sd
-                estimate (human_size estimate)
-                actual (human_size actual)
-                pc;
-              if pc < 0. then printf " ! ESTIMATE TOO LOW !";
-              printf "\n%!";
-          );
-
-          t
-      ) targets
-    ) (* do_copy *) in
-
-  (* Create output metadata. *)
-  message (f_"Creating output metadata");
-  output#create_metadata source targets target_buses guestcaps inspect
-                         target_firmware;
-
-  (* Save overlays if --debug-overlays option was used. *)
-  if debug_overlays then (
-    List.iter (
-      fun ov ->
-        let saved_filename =
-          sprintf "%s/%s-%s.qcow2" overlay_dir source.s_name ov.ov_sd in
-        rename ov.ov_overlay_file saved_filename;
-        printf (f_"Overlay saved as %s [--debug-overlays]\n") saved_filename
-    ) overlays
-  );
-
-  message (f_"Finishing off");
-  delete_target_on_exit := false  (* Don't delete target on exit. *)
-
-and inspect_source g root_choice =
-  let roots = g#inspect_os () in
-  let roots = Array.to_list roots in
-
-  let root =
-    match roots with
-    | [] ->
-      error (f_"no root device found in this operating system image.");
-    | [root] -> root
-    | roots ->
-      match root_choice with
-      | `Ask ->
-        (* List out the roots and ask the user to choose. *)
-        printf "\n***\n";
-        printf (f_"Dual- or multi-boot operating system detected.  Choose the root filesystem\nthat contains the main operating system from the list below:\n");
-        printf "\n";
-        iteri (
-          fun i root ->
-            let prod = g#inspect_get_product_name root in
-            match prod with
-            | "unknown" -> printf " [%d] %s\n" (i+1) root
-            | prod -> printf " [%d] %s (%s)\n" (i+1) root prod
-        ) roots;
-        printf "\n";
-        let i = ref 0 in
-        let n = List.length roots in
-        while !i < 1 || !i > n do
-          printf (f_"Enter a number between 1 and %d, or 'exit': ") n;
-          let input = read_line () in
-          if input = "exit" || input = "q" || input = "quit" then
-            exit 0
-          else (
-            try i := int_of_string input
-            with
-            | End_of_file -> error (f_"connection closed")
-            | Failure "int_of_string" -> ()
-          )
-        done;
-        List.nth roots (!i - 1)
-
-      | `Single ->
-        error (f_"multi-boot operating systems are not supported by virt-v2v. Use the --root option to change how virt-v2v handles this.")
-
-      | `First ->
-        let root = List.hd roots in
-        info (f_"Picked %s because '--root first' was used.") root;
-        root
-
-      | `Dev dev ->
-        let root =
-          if List.mem dev roots then dev
-          else
-            error (f_"root device %s not found.  Roots found were: %s")
-              dev (String.concat " " roots) in
-        info (f_"Picked %s because '--root %s' was used.") root dev;
-        root in
-
-  (* Reject this OS if it doesn't look like an installed image. *)
-  let () =
-    let fmt = g#inspect_get_format root in
-    if fmt <> "installed" then
-      error (f_"libguestfs thinks this is not an installed operating system (it might be, for example, an installer disk or live CD).  If this is wrong, it is probably a bug in libguestfs.  root=%s fmt=%s") root fmt in
-
-  (* Mount up the filesystems. *)
-  let mps = g#inspect_get_mountpoints root in
-  let cmp (a,_) (b,_) = compare (String.length a) (String.length b) in
-  let mps = List.sort cmp mps in
-  List.iter (
-    fun (mp, dev) ->
-      try g#mount dev mp
-      with G.Error msg ->
-        if mp = "/" then ( (* RHBZ#1145995 *)
-          if String.find msg "Windows" >= 0 && String.find msg "NTFS partition is in an unsafe state" >= 0 then
-            error (f_"unable to mount the disk image for writing. This has probably happened because Windows Hibernation or Fast Restart is being used in this guest. You have to disable this (in the guest) in order to use virt-v2v.\n\nOriginal error message: %s") msg
-          else
-            error "%s" msg
-        )
-        else
-          warning (f_"%s (ignored)") msg
-  ) mps;
-
-  (* Get list of applications/packages installed. *)
-  let apps = g#inspect_list_applications2 root in
-  let apps = Array.to_list apps in
-
-  (* A map of app2_name -> application2, for easier lookups.  Note
-   * that app names are not unique!  (eg. 'kernel' can appear multiple
-   * times)
-   *)
-  let apps_map = List.fold_left (
-    fun map app ->
-      let name = app.G.app2_name in
-      let vs = try StringMap.find name map with Not_found -> [] in
-      StringMap.add name (app :: vs) map
-  ) StringMap.empty apps in
-
-  (* See if this guest could use UEFI to boot.  It should use GPT and
-   * it should have an EFI System Partition (ESP).
-   *)
-  let uefi =
-    let rec uefi_ESP_guid = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
-    and is_uefi_ESP dev { G.part_num = partnum } =
-      g#part_get_gpt_type dev (Int32.to_int partnum) = uefi_ESP_guid
-    and parttype_is_gpt dev =
-      try g#part_get_parttype dev = "gpt"
-      with G.Error msg as exn ->
-        (* If it's _not_ "unrecognised disk label" then re-raise it. *)
-        if g#last_errno () <> G.Errno.errno_EINVAL then raise exn;
-        if verbose () then printf "%s (ignored)\n" msg;
-        false
-    and is_uefi_bootable_device dev =
-      parttype_is_gpt dev && (
-        let partitions = Array.to_list (g#part_list dev) in
-        List.exists (is_uefi_ESP dev) partitions
-      )
-    in
-    let devices = Array.to_list (g#list_devices ()) in
-    List.exists is_uefi_bootable_device devices in
-
-  let inspect = {
-    i_root = root;
-    i_type = g#inspect_get_type root;
-    i_distro = g#inspect_get_distro root;
-    i_arch = g#inspect_get_arch root;
-    i_major_version = g#inspect_get_major_version root;
-    i_minor_version = g#inspect_get_minor_version root;
-    i_package_format = g#inspect_get_package_format root;
-    i_package_management = g#inspect_get_package_management root;
-    i_product_name = g#inspect_get_product_name root;
-    i_product_variant = g#inspect_get_product_variant root;
-    i_mountpoints = mps;
-    i_apps = apps;
-    i_apps_map = apps_map;
-    i_uefi = uefi
-  } in
-  if verbose () then printf "%s%!" (string_of_inspect inspect);
-  inspect
+  mpstats
 
 (* Conversion can fail if there is no space on the guest filesystems
  * (RHBZ#1139543).  To avoid this situation, check there is some
  * headroom.  Mainly we care about the root filesystem.
  *)
 and check_free_space mpstats =
+  message (f_"Checking for sufficient free disk space in the guest");
   List.iter (
     fun { mp_path = mp;
           mp_statvfs = { G.bfree = bfree; blocks = blocks; bsize = bsize } } ->
@@ -748,16 +476,14 @@ and estimate_target_size mpstats targets =
     sum (
       List.map (fun { mp_statvfs = s } -> s.G.blocks *^ s.G.bsize) mpstats
     ) in
-  if verbose () then
-    printf "estimate_target_size: fs_total_size = %Ld [%s]\n%!"
-      fs_total_size (human_size fs_total_size);
+  debug "estimate_target_size: fs_total_size = %Ld [%s]"
+        fs_total_size (human_size fs_total_size);
 
   (* (2) *)
   let source_total_size =
     sum (List.map (fun t -> t.target_overlay.ov_virtual_size) targets) in
-  if verbose () then
-    printf "estimate_target_size: source_total_size = %Ld [%s]\n%!"
-      source_total_size (human_size source_total_size);
+  debug "estimate_target_size: source_total_size = %Ld [%s]"
+        source_total_size (human_size source_total_size);
 
   if source_total_size = 0L then     (* Avoid divide by zero error. *)
     targets
@@ -765,8 +491,7 @@ and estimate_target_size mpstats targets =
     (* (3) Store the ratio as a float to avoid overflows later. *)
     let ratio =
       Int64.to_float fs_total_size /. Int64.to_float source_total_size in
-    if verbose () then
-      printf "estimate_target_size: ratio = %.3f\n%!" ratio;
+    debug "estimate_target_size: ratio = %.3f" ratio;
 
     (* (4) *)
     let fs_free =
@@ -789,13 +514,11 @@ and estimate_target_size mpstats targets =
           | _ -> 0L
         ) mpstats
       ) in
-    if verbose () then
-      printf "estimate_target_size: fs_free = %Ld [%s]\n%!"
-        fs_free (human_size fs_free);
+    debug "estimate_target_size: fs_free = %Ld [%s]"
+          fs_free (human_size fs_free);
     let scaled_saving = Int64.of_float (Int64.to_float fs_free *. ratio) in
-    if verbose () then
-      printf "estimate_target_size: scaled_saving = %Ld [%s]\n%!"
-        scaled_saving (human_size scaled_saving);
+    debug "estimate_target_size: scaled_saving = %Ld [%s]"
+          scaled_saving (human_size scaled_saving);
 
     (* (5) *)
     let targets = List.map (
@@ -805,29 +528,192 @@ and estimate_target_size mpstats targets =
           Int64.to_float size /. Int64.to_float source_total_size in
         let estimated_size =
           size -^ Int64.of_float (proportion *. Int64.to_float scaled_saving) in
-        if verbose () then
-          printf "estimate_target_size: %s: %Ld [%s]\n%!"
-            ov.ov_sd estimated_size (human_size estimated_size);
+        debug "estimate_target_size: %s: %Ld [%s]"
+              ov.ov_sd estimated_size (human_size estimated_size);
         { t with target_estimated_size = Some estimated_size }
     ) targets in
 
     targets
   )
 
+(* Estimate space required on target for each disk.  Note this is a max. *)
+and check_target_free_space mpstats source targets output =
+  message (f_"Estimating space required on target for each disk");
+  let targets = estimate_target_size mpstats targets in
+
+  output#check_target_free_space source targets
+
+(* Conversion. *)
+and do_convert g inspect source keep_serial_console =
+  (match inspect.i_product_name with
+  | "unknown" ->
+    message (f_"Converting the guest to run on KVM")
+  | prod ->
+    message (f_"Converting %s to run on KVM") prod
+  );
+
+  let conversion_name, convert =
+    try Modules_list.find_convert_module inspect
+    with Not_found ->
+      error (f_"virt-v2v is unable to convert this guest type (%s/%s)")
+        inspect.i_type inspect.i_distro in
+  debug "picked conversion module %s" conversion_name;
+  let guestcaps = convert ~keep_serial_console g inspect source in
+  debug "%s" (string_of_guestcaps guestcaps);
+
+  (* Did we manage to install virtio drivers? *)
+  if not (quiet ()) then (
+    if guestcaps.gcaps_block_bus = Virtio_blk then
+      info (f_"This guest has virtio drivers installed.")
+    else
+      info (f_"This guest does not have virtio drivers installed.");
+  );
+
+  guestcaps
+
+(* Does the guest require UEFI on the target? *)
+and get_target_firmware inspect guestcaps source output =
+  message (f_"Checking if the guest needs BIOS or UEFI to boot");
+  let target_firmware =
+    match source.s_firmware with
+    | BIOS -> TargetBIOS
+    | UEFI -> TargetUEFI
+    | UnknownFirmware ->
+       if inspect.i_uefi then TargetUEFI else TargetBIOS in
+  let supported_firmware = output#supported_firmware in
+  if not (List.mem target_firmware supported_firmware) then
+    error (f_"this guest cannot run on the target, because the target does not support %s firmware (supported firmware on target: %s)")
+          (string_of_target_firmware target_firmware)
+          (String.concat " "
+            (List.map string_of_target_firmware supported_firmware));
+
+  output#check_target_firmware guestcaps target_firmware;
+
+  (match target_firmware with
+   | TargetBIOS -> ()
+   | TargetUEFI -> info (f_"This guest requires UEFI on the target to boot."));
+
+  target_firmware
+
+and delete_target_on_exit = ref true
+
+(* Copy the source (really, the overlays) to the output. *)
+and copy_targets cmdline targets input output =
+  at_exit (fun () ->
+    if !delete_target_on_exit then (
+      List.iter (
+        fun t -> try unlink t.target_file with _ -> ()
+      ) targets
+    )
+  );
+  let nr_disks = List.length targets in
+  mapi (
+    fun i t ->
+      message (f_"Copying disk %d/%d to %s (%s)")
+        (i+1) nr_disks t.target_file t.target_format;
+      debug "%s" (string_of_target t);
+
+      (* We noticed that qemu sometimes corrupts the qcow2 file on
+       * exit.  This only seemed to happen with lazy_refcounts was
+       * used.  The symptom was that the header wasn't written back
+       * to the disk correctly and the file appeared to have no
+       * backing file.  Just sanity check this here.
+       *)
+      let overlay_file = t.target_overlay.ov_overlay_file in
+      if not ((open_guestfs ())#disk_has_backing_file overlay_file) then
+        error (f_"internal error: qemu corrupted the overlay file");
+
+      (* Give the input module a chance to adjust the parameters
+       * of the overlay/backing file.  This allows us to increase
+       * the readahead parameter when copying (see RHBZ#1151033 and
+       * RHBZ#1153589 for the gruesome details).
+       *)
+      input#adjust_overlay_parameters t.target_overlay;
+
+      (* It turns out that libguestfs's disk creation code is
+       * considerably more flexible and easier to use than
+       * qemu-img, so create the disk explicitly using libguestfs
+       * then pass the 'qemu-img convert -n' option so qemu reuses
+       * the disk.
+       *
+       * Also we allow the output mode to actually create the disk
+       * image.  This lets the output mode set ownership and
+       * permissions correctly if required.
+       *)
+      (* What output preallocation mode should we use? *)
+      let preallocation =
+        match t.target_format, cmdline.output_alloc with
+        | ("raw"|"qcow2"), Sparse -> Some "sparse"
+        | ("raw"|"qcow2"), Preallocated -> Some "full"
+        | _ -> None (* ignore -oa flag for other formats *) in
+      let compat =
+        match t.target_format with "qcow2" -> Some "1.1" | _ -> None in
+      output#disk_create
+        t.target_file t.target_format t.target_overlay.ov_virtual_size
+        ?preallocation ?compat;
+
+      let cmd = [ "qemu-img"; "convert" ] @
+        (if not (quiet ()) then [ "-p" ] else []) @
+        [ "-n"; "-f"; "qcow2"; "-O"; t.target_format ] @
+        (if cmdline.compressed then [ "-c" ] else []) @
+        [ overlay_file; t.target_file ] in
+      let start_time = gettimeofday () in
+      if run_command cmd <> 0 then
+        error (f_"qemu-img command failed, see earlier errors");
+      let end_time = gettimeofday () in
+
+      (* Calculate the actual size on the target, returns an updated
+       * target structure.
+       *)
+      let t = actual_target_size t in
+
+      (* If verbose, print the virtual and real copying rates. *)
+      let elapsed_time = end_time -. start_time in
+      if verbose () && elapsed_time > 0. then (
+        let mbps size time =
+          Int64.to_float size /. 1024. /. 1024. *. 10. /. time
+        in
+
+        printf "virtual copying rate: %.1f M bits/sec\n%!"
+          (mbps t.target_overlay.ov_virtual_size elapsed_time);
+
+        match t.target_actual_size with
+        | None -> ()
+        | Some actual ->
+          printf "real copying rate: %.1f M bits/sec\n%!"
+            (mbps actual elapsed_time)
+      );
+
+      (* If verbose, find out how close the estimate was.  This is
+       * for developer information only - so we can increase the
+       * accuracy of the estimate.
+       *)
+      if verbose () then (
+        match t.target_estimated_size, t.target_actual_size with
+        | None, None | None, Some _ | Some _, None | Some _, Some 0L -> ()
+        | Some estimate, Some actual ->
+          let pc =
+            100. *. Int64.to_float estimate /. Int64.to_float actual
+            -. 100. in
+          printf "%s: estimate %Ld (%s) versus actual %Ld (%s): %.1f%%"
+            t.target_overlay.ov_sd
+            estimate (human_size estimate)
+            actual (human_size actual)
+            pc;
+          if pc < 0. then printf " ! ESTIMATE TOO LOW !";
+          printf "\n%!";
+      );
+
+      t
+  ) targets
+
 (* Update the target_actual_size field in the target structure. *)
 and actual_target_size target =
-  { target with target_actual_size = du target.target_file }
-
-(* There's no OCaml binding for st_blocks, so run coreutils 'du'
- * to get the used size in bytes.
- *)
-and du filename =
-  let cmd = sprintf "du --block-size=1 %s | awk '{print $1}'" (quote filename) in
-  let lines = external_command cmd in
-  (* Ignore errors because we want to avoid failures after copying. *)
-  match lines with
-  | line::_ -> (try Some (Int64.of_string line) with _ -> None)
-  | [] -> None
+  let size =
+    (* Ignore errors because we want to avoid failures after copying. *)
+    try Some (du target.target_file)
+    with Failure _ | Invalid_argument _ -> None in
+  { target with target_actual_size = size }
 
 (* Assign fixed and removable disks to target buses, as best we can.
  * This is not solvable for all guests, but at least avoid overlapping
@@ -903,5 +789,16 @@ and target_bus_assignment source targets guestcaps =
   { target_virtio_blk_bus = !virtio_blk_bus;
     target_ide_bus = !ide_bus;
     target_scsi_bus = !scsi_bus }
+
+(* Save overlays if --debug-overlays option was used. *)
+and preserve_overlays overlays src_name =
+  let overlay_dir = (open_guestfs ())#get_cachedir () in
+  List.iter (
+    fun ov ->
+      let saved_filename =
+        sprintf "%s/%s-%s.qcow2" overlay_dir src_name ov.ov_sd in
+      rename ov.ov_overlay_file saved_filename;
+      printf (f_"Overlay saved as %s [--debug-overlays]\n") saved_filename
+  ) overlays
 
 let () = run_main_and_handle_errors main

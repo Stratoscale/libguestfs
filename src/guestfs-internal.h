@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -38,12 +38,11 @@
                              MIN_LIBVIRT_MINOR * 1000 +		\
                              MIN_LIBVIRT_MICRO)
 
-#if defined(HAVE_LIBVIRT) && LIBVIR_VERSION_NUMBER >= MIN_LIBVIRT_VERSION
-#define HAVE_LIBVIRT_BACKEND
-#endif
-
 #ifdef HAVE_LIBVIRT
 #include <libvirt/libvirt.h>
+#if LIBVIR_VERSION_NUMBER >= MIN_LIBVIRT_VERSION
+#define HAVE_LIBVIRT_BACKEND
+#endif
 #endif
 
 #include "hash.h"
@@ -360,6 +359,12 @@ struct error_cb_stack {
   void *                   error_cb_data;
 };
 
+/* Cached queried features. */
+struct cached_feature {
+  char *group;
+  int result;
+};
+
 /* The libguestfs handle. */
 struct guestfs_h
 {
@@ -502,6 +507,10 @@ struct guestfs_h
   unsigned int nr_requested_credentials;
   virConnectCredentialPtr requested_credentials;
 #endif
+
+  /* Cached features. */
+  struct cached_feature *features;
+  size_t nr_features;
 };
 
 /* Per-filesystem data stored for inspect_os. */
@@ -557,6 +566,7 @@ enum inspect_os_distro {
   OS_DISTRO_ALPINE_LINUX,
   OS_DISTRO_ALTLINUX,
   OS_DISTRO_FRUGALWARE,
+  OS_DISTRO_PLD_LINUX,
 };
 
 enum inspect_os_package_format {
@@ -684,30 +694,6 @@ extern int guestfs_int_match6 (guestfs_h *g, const char *str, const pcre *re, ch
 #define match4 guestfs_int_match4
 #define match6 guestfs_int_match6
 
-/* Macro which compiles the regexp once when the library is loaded,
- * and frees it when the library is unloaded.
- */
-#define COMPILE_REGEXP(name,pattern,options)                            \
-  static void compile_regexp_##name (void) __attribute__((constructor)); \
-  static void free_regexp_##name (void) __attribute__((destructor));    \
-  static pcre *name;                                                    \
-  static void                                                           \
-  compile_regexp_##name (void)                                          \
-  {                                                                     \
-    const char *err;                                                    \
-    int offset;                                                         \
-    name = pcre_compile ((pattern), (options), &err, &offset, NULL);    \
-    if (name == NULL) {                                                 \
-      ignore_value (write (2, err, strlen (err)));                      \
-      abort ();                                                         \
-    }                                                                   \
-  }                                                                     \
-  static void                                                           \
-  free_regexp_##name (void)                                             \
-  {                                                                     \
-    pcre_free (name);                                                   \
-  }
-
 /* stringsbuf.c */
 struct stringsbuf {
   char **argv;
@@ -754,6 +740,7 @@ extern void guestfs_int_call_callbacks_array (guestfs_h *g, uint64_t event, cons
 /* tmpdirs.c */
 extern int guestfs_int_set_env_tmpdir (guestfs_h *g, const char *tmpdir);
 extern int guestfs_int_lazy_make_tmpdir (guestfs_h *g);
+extern char *guestfs_int_lazy_make_supermin_appliance_dir (guestfs_h *g);
 extern void guestfs_int_remove_tmpdir (guestfs_h *g);
 extern void guestfs_int_recursive_remove_dir (guestfs_h *g, const char *dir);
 
@@ -898,6 +885,7 @@ extern void guestfs_int_cleanup_cmd_close (struct command **);
 /* launch-direct.c */
 extern char *guestfs_int_drive_source_qemu_param (guestfs_h *g, const struct drive_source *src);
 extern bool guestfs_int_discard_possible (guestfs_h *g, struct drive *drv, unsigned long qemu_version);
+extern char *guestfs_int_qemu_escape_param (guestfs_h *g, const char *param);
 
 /* launch-*.c constructors */
 void guestfs_int_init_direct_backend (void) __attribute__((constructor));
@@ -909,5 +897,14 @@ void guestfs_int_init_unix_backend (void) __attribute__((constructor));
 
 /* guid.c */
 extern int guestfs_int_validate_guid (const char *);
+
+/* umask.c */
+extern int guestfs_int_getumask (guestfs_h *g);
+
+/* wait.c */
+extern int guestfs_int_waitpid (guestfs_h *g, pid_t pid, int *status, const char *errmsg);
+extern void guestfs_int_waitpid_noerror (pid_t pid);
+struct rusage;
+extern int guestfs_int_wait4 (guestfs_h *g, pid_t pid, int *status, struct rusage *rusage, const char *errmsg);
 
 #endif /* GUESTFS_INTERNAL_H_ */

@@ -1,5 +1,5 @@
 /* virt-p2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,12 +35,14 @@
 #pragma GCC diagnostic ignored "-Wstrict-prototypes" /* error in <gtk.h> */
 #include <gtk/gtk.h>
 
+#include "ignore-value.h"
 #include "p2v.h"
 
 char **all_disks;
 char **all_removable;
 char **all_interfaces;
 
+static void udevadm_settle (void);
 static void set_config_defaults (struct config *config);
 static void find_all_disks (void);
 static void find_all_interfaces (void);
@@ -66,7 +68,7 @@ usage (int status)
              guestfs_int_program_name);
   else {
     printf (_("%s: Convert a physical machine to use KVM\n"
-              "Copyright (C) 2009-2015 Red Hat Inc.\n"
+              "Copyright (C) 2009-2016 Red Hat Inc.\n"
               "Usage:\n"
               "  %s [--options]\n"
               "Options:\n"
@@ -118,6 +120,13 @@ main (int argc, char *argv[])
   bindtextdomain (PACKAGE, LOCALEBASEDIR);
   textdomain (PACKAGE);
 
+  /* There is some raciness between slow devices being discovered by
+   * the kernel and udev and virt-p2v running.  This is a partial
+   * workaround, but a real fix involves handling hotplug events
+   * (possible in GUI mode, not easy in kernel mode).
+   */
+  udevadm_settle ();
+
 #if ! GLIB_CHECK_VERSION(2,32,0)
   /* In glib2 < 2.32 you had to call g_thread_init().  In later glib2
    * that is not required and should not be called.
@@ -157,9 +166,7 @@ main (int argc, char *argv[])
       break;
 
     case 'V':
-      printf ("%s %s%s\n",
-              guestfs_int_program_name,
-              PACKAGE_VERSION, PACKAGE_VERSION_EXTRA);
+      printf ("%s %s\n", guestfs_int_program_name, PACKAGE_VERSION_FULL);
       exit (EXIT_SUCCESS);
 
     case HELP_OPTION:
@@ -213,6 +220,12 @@ main (int argc, char *argv[])
 }
 
 static void
+udevadm_settle (void)
+{
+  ignore_value (system ("udevadm settle"));
+}
+
+static void
 set_config_defaults (struct config *config)
 {
   long i;
@@ -229,7 +242,7 @@ set_config_defaults (struct config *config)
     perror ("gethostname");
     /* Generate a simple random name. */
     if (guestfs_int_random_string (hostname, 8) == -1) {
-      perror ("/dev/urandom");
+      perror ("guestfs_int_random_string");
       exit (EXIT_FAILURE);
     }
   } else {

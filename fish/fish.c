@@ -1,5 +1,5 @@
 /* guestfish - guest filesystem shell
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -107,7 +107,7 @@ usage (int status)
   else {
     printf (_("%s: guest filesystem shell\n"
               "%s lets you edit virtual machine filesystems\n"
-              "Copyright (C) 2009-2015 Red Hat Inc.\n"
+              "Copyright (C) 2009-2016 Red Hat Inc.\n"
               "Usage:\n"
               "  %s [--options] cmd [: cmd : cmd ...]\n"
               "Options:\n"
@@ -645,8 +645,8 @@ shell_script (void)
 static char *ps1 = NULL;        /* GUESTFISH_PS1 */
 static char *ps_output = NULL;  /* GUESTFISH_OUTPUT */
 static char *ps_init = NULL;    /* GUESTFISH_INIT */
-#endif /* HAVE_LIBREADLINE */
 static char *ps_restore = NULL; /* GUESTFISH_RESTORE */
+#endif /* HAVE_LIBREADLINE */
 static char *line_read = NULL;
 
 static char *

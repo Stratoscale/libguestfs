@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,3 +15,11 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *)
+
+(** Convert a Windows guest to run on KVM.
+
+    This module converts a Windows guest to run on KVM.
+
+    No functions are exported.  When the module is linked to virt-v2v
+    it registers itself with {!Modules_list.register_convert_module},
+    accepting any guest with inspection type ["windows"]. *)

@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -222,44 +222,48 @@ let create_libvirt_xml ?pool source target_buses guestcaps
   (* Same as old virt-v2v, we always add a display here even if it was
    * missing from the old metadata.
    *)
-  let video, graphics =
-    let video, graphics =
+  let video =
+    let video_model =
       match guestcaps.gcaps_video with
-      | QXL ->
-        e "video" [ "type", "qxl"; "ram", "65536" ] [],
-        e "graphics" [ "type", "vnc" ] []
-      | Cirrus ->
-        e "video" [ "type", "cirrus"; "vram", "9216" ] [],
-        e "graphics" [ "type", "spice" ] [] in
+      | QXL ->    e "model" [ "type", "qxl"; "ram", "65536" ] []
+      | Cirrus -> e "model" [ "type", "cirrus"; "vram", "9216" ] [] in
+    append_attr ("heads", "1") video_model;
+    e "video" [] [ video_model ] in
 
-    append_attr ("heads", "1") video;
+  let graphics =
+    match source.s_display with
+    | None -> e "graphics" [ "type", "vnc" ] []
+    | Some { s_display_type = Window } ->
+       e "graphics" [ "type", "sdl" ] []
+    | Some { s_display_type = VNC } ->
+       e "graphics" [ "type", "vnc" ] []
+    | Some { s_display_type = Spice } ->
+       e "graphics" [ "type", "spice" ] [] in
 
-    (match source.s_display with
-    | Some { s_keymap = Some km } -> append_attr ("keymap", km) graphics
-    | _ -> ());
-    (match source.s_display with
-    | Some { s_password = Some pw } -> append_attr ("passwd", pw) graphics
-    | _ -> ());
-    (match source.s_display with
-    | Some { s_listen = listen } ->
+  (match source.s_display with
+   | Some { s_keymap = Some km } -> append_attr ("keymap", km) graphics
+   | Some { s_keymap = None } | None -> ());
+  (match source.s_display with
+   | Some { s_password = Some pw } -> append_attr ("passwd", pw) graphics
+   | Some { s_password = None } | None -> ());
+  (match source.s_display with
+   | Some { s_listen = listen } ->
       (match listen with
-      | LAddress a ->
-        let sub = e "listen" [ "type", "address"; "address", a ] [] in
-        append_child sub graphics
-      | LNetwork n ->
-        let sub = e "listen" [ "type", "network"; "network", n ] [] in
-        append_child sub graphics
-      | LNone -> ())
-    | _ -> ());
-    (match source.s_display with
-    | Some { s_port = Some p } ->
+       | LAddress a ->
+          let sub = e "listen" [ "type", "address"; "address", a ] [] in
+          append_child sub graphics
+       | LNetwork n ->
+          let sub = e "listen" [ "type", "network"; "network", n ] [] in
+          append_child sub graphics
+       | LNone -> ())
+   | None -> ());
+  (match source.s_display with
+   | Some { s_port = Some p } ->
       append_attr ("autoport", "no") graphics;
       append_attr ("port", string_of_int p) graphics
-    | _ ->
+   | Some { s_port = None } | None ->
       append_attr ("autoport", "yes") graphics;
       append_attr ("port", "-1") graphics);
-
-    video, graphics in
 
   let sound =
     match source.s_sound with
@@ -313,7 +317,7 @@ class output_libvirt oc output_pool = object
   method prepare_targets source targets =
     (* Get the capabilities from libvirt. *)
     let xml = Domainxml.capabilities ?conn:oc () in
-    if verbose () then printf "libvirt capabilities XML:\n%s\n%!" xml;
+    debug "libvirt capabilities XML:\n%s" xml;
 
     (* This just checks that the capabilities XML is well-formed,
      * early so that we catch parsing errors before conversion.
@@ -381,12 +385,9 @@ class output_libvirt oc output_pool = object
      *)
     let cmd =
       match oc with
-      | None -> sprintf "virsh pool-refresh %s" (quote output_pool)
-      | Some uri ->
-        sprintf "virsh -c %s pool-refresh %s"
-          (quote uri) (quote output_pool) in
-    if verbose () then printf "%s\n%!" cmd;
-    if Sys.command cmd <> 0 then
+      | None -> [ "virsh"; "pool-refresh"; output_pool ]
+      | Some uri -> [ "virsh"; "-c"; uri; "pool-refresh"; output_pool ] in
+    if run_command cmd <> 0 then
       warning (f_"could not refresh libvirt pool %s") output_pool;
 
     (* Parse the capabilities XML in order to get the supported features. *)
@@ -406,13 +407,18 @@ class output_libvirt oc output_pool = object
     DOM.doc_to_chan chan doc;
     close_out chan;
 
+    if verbose () then (
+      eprintf "resulting XML for libvirt:\n%!";
+      DOM.doc_to_chan stderr doc;
+      eprintf "\n%!";
+    );
+
     (* Define the domain in libvirt. *)
     let cmd =
       match oc with
-      | None -> sprintf "virsh define %s" (quote tmpfile)
-      | Some uri ->
-        sprintf "virsh -c %s define %s" (quote uri) (quote tmpfile) in
-    if Sys.command cmd = 0 then (
+      | None -> [ "virsh"; "define"; tmpfile ]
+      | Some uri -> [ "virsh"; "-c"; uri; "define"; tmpfile ] in
+    if run_command cmd = 0 then (
       try Unix.unlink tmpfile with _ -> ()
     ) else (
       warning (f_"could not define libvirt domain.  The libvirt XML is still available in '%s'.  Try running 'virsh define %s' yourself instead.")

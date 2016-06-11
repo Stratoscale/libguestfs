@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1143,6 +1143,10 @@ Oracle Linux.
 
 Pardus.
 
+=item \"pldlinux\"
+
+PLD Linux.
+
 =item \"redhat-based\"
 
 Some Red Hat-derived distro.
@@ -1453,6 +1457,8 @@ See also: L<guestfs(3)/GLUSTER>
 
 Connect to the iSCSI server.
 The C<server> parameter must also be supplied - see below.
+The C<username> parameter may be supplied.  See below.
+The C<secret> parameter may be supplied.  See below.
 
 See also: L<guestfs(3)/ISCSI>.
 
@@ -2655,7 +2661,7 @@ See also C<guestfs_write>." };
 
   { defaults with
     name = "lstatlist"; added = (1, 0, 77);
-    style = RStructList ("statbufs", "stat"), [Pathname "path"; StringList "names"], [];
+    style = RStructList ("statbufs", "stat"), [Pathname "path"; FilenameList "names"], [];
     deprecated_by = Some "lstatnslist";
     shortdesc = "lstat on multiple files";
     longdesc = "\
@@ -2675,7 +2681,7 @@ for getting extended attributes." };
 
   { defaults with
     name = "lstatnslist"; added = (1, 27, 53);
-    style = RStructList ("statbufs", "statns"), [Pathname "path"; StringList "names"], [];
+    style = RStructList ("statbufs", "statns"), [Pathname "path"; FilenameList "names"], [];
     shortdesc = "lstat on multiple files";
     longdesc = "\
 This call allows you to perform the C<guestfs_lstatns> operation
@@ -2694,7 +2700,7 @@ for getting extended attributes." };
 
   { defaults with
     name = "lxattrlist"; added = (1, 0, 77);
-    style = RStructList ("xattrs", "xattr"), [Pathname "path"; StringList "names"], [];
+    style = RStructList ("xattrs", "xattr"), [Pathname "path"; FilenameList "names"], [];
     optional = Some "linuxxattrs";
     shortdesc = "lgetxattr on multiple files";
     longdesc = "\
@@ -2719,7 +2725,7 @@ for getting standard stats." };
 
   { defaults with
     name = "readlinklist"; added = (1, 0, 77);
-    style = RStringList "links", [Pathname "path"; StringList "names"], [];
+    style = RStringList "links", [Pathname "path"; FilenameList "names"], [];
     shortdesc = "readlink on multiple files";
     longdesc = "\
 This call allows you to do a C<readlink> operation
@@ -2779,19 +2785,19 @@ data." };
     style = RString "format", [String "filename"], [];
     tests = [
       InitEmpty, Always, TestResultString (
-        [["disk_format"; "../data/blank-disk-1s.raw"]], "raw"), [];
+        [["disk_format"; "../../test-data/blank-disks/blank-disk-1s.raw"]], "raw"), [];
       InitEmpty, Always, TestResultString (
-        [["disk_format"; "../data/blank-disk-1s.qcow2"]], "qcow2"), [];
+        [["disk_format"; "../../test-data/blank-disks/blank-disk-1s.qcow2"]], "qcow2"), [];
       InitEmpty, Always, TestResultString (
-        [["disk_format"; "../data/blank-disk-1K.raw"]], "raw"), [];
+        [["disk_format"; "../../test-data/blank-disks/blank-disk-1K.raw"]], "raw"), [];
       InitEmpty, Always, TestResultString (
-        [["disk_format"; "../data/blank-disk-1K.qcow2"]], "qcow2"), [];
+        [["disk_format"; "../../test-data/blank-disks/blank-disk-1K.qcow2"]], "qcow2"), [];
       InitEmpty, Always, TestResultString (
-        [["disk_format"; "../data/blank-disk-1M.raw"]], "raw"), [];
+        [["disk_format"; "../../test-data/blank-disks/blank-disk-1M.raw"]], "raw"), [];
       InitEmpty, Always, TestResultString (
-        [["disk_format"; "../data/blank-disk-1M.qcow2"]], "qcow2"), [];
+        [["disk_format"; "../../test-data/blank-disks/blank-disk-1M.qcow2"]], "qcow2"), [];
       InitEmpty, Always, TestResultString (
-        [["disk_format"; "../data/blank-disk-with-backing.qcow2"]], "qcow2"), [];
+        [["disk_format"; "../../test-data/blank-disks/blank-disk-with-backing.qcow2"]], "qcow2"), [];
     ];
     shortdesc = "detect the disk format of a disk image";
     longdesc = "\
@@ -2809,19 +2815,19 @@ See also: L<guestfs(3)/DISK IMAGE FORMATS>" };
     style = RInt64 "size", [String "filename"], [];
     tests = [
       InitEmpty, Always, TestResult (
-        [["disk_virtual_size"; "../data/blank-disk-1s.raw"]], "ret == 512"), [];
+        [["disk_virtual_size"; "../../test-data/blank-disks/blank-disk-1s.raw"]], "ret == 512"), [];
       InitEmpty, Always, TestResult (
-        [["disk_virtual_size"; "../data/blank-disk-1s.qcow2"]], "ret == 512"), [];
+        [["disk_virtual_size"; "../../test-data/blank-disks/blank-disk-1s.qcow2"]], "ret == 512"), [];
       InitEmpty, Always, TestResult (
-        [["disk_virtual_size"; "../data/blank-disk-1K.raw"]], "ret == 1024"), [];
+        [["disk_virtual_size"; "../../test-data/blank-disks/blank-disk-1K.raw"]], "ret == 1024"), [];
       InitEmpty, Always, TestResult (
-        [["disk_virtual_size"; "../data/blank-disk-1K.qcow2"]], "ret == 1024"), [];
+        [["disk_virtual_size"; "../../test-data/blank-disks/blank-disk-1K.qcow2"]], "ret == 1024"), [];
       InitEmpty, Always, TestResult (
-        [["disk_virtual_size"; "../data/blank-disk-1M.raw"]], "ret == 1024*1024"), [];
+        [["disk_virtual_size"; "../../test-data/blank-disks/blank-disk-1M.raw"]], "ret == 1024*1024"), [];
       InitEmpty, Always, TestResult (
-        [["disk_virtual_size"; "../data/blank-disk-1M.qcow2"]], "ret == 1024*1024"), [];
+        [["disk_virtual_size"; "../../test-data/blank-disks/blank-disk-1M.qcow2"]], "ret == 1024*1024"), [];
       InitEmpty, Always, TestResult (
-        [["disk_virtual_size"; "../data/blank-disk-with-backing.qcow2"]], "ret == 1024*1024"), [];
+        [["disk_virtual_size"; "../../test-data/blank-disks/blank-disk-with-backing.qcow2"]], "ret == 1024*1024"), [];
     ];
     shortdesc = "return virtual size of a disk";
     longdesc = "\
@@ -2836,19 +2842,19 @@ circumstances.  See L<guestfs(3)/CVE-2010-3851>." };
     style = RBool "backingfile", [String "filename"], [];
     tests = [
       InitEmpty, Always, TestResultFalse (
-        [["disk_has_backing_file"; "../data/blank-disk-1s.raw"]]), [];
+        [["disk_has_backing_file"; "../../test-data/blank-disks/blank-disk-1s.raw"]]), [];
       InitEmpty, Always, TestResultFalse (
-        [["disk_has_backing_file"; "../data/blank-disk-1s.qcow2"]]), [];
+        [["disk_has_backing_file"; "../../test-data/blank-disks/blank-disk-1s.qcow2"]]), [];
       InitEmpty, Always, TestResultFalse (
-        [["disk_has_backing_file"; "../data/blank-disk-1K.raw"]]), [];
+        [["disk_has_backing_file"; "../../test-data/blank-disks/blank-disk-1K.raw"]]), [];
       InitEmpty, Always, TestResultFalse (
-        [["disk_has_backing_file"; "../data/blank-disk-1K.qcow2"]]), [];
+        [["disk_has_backing_file"; "../../test-data/blank-disks/blank-disk-1K.qcow2"]]), [];
       InitEmpty, Always, TestResultFalse (
-        [["disk_has_backing_file"; "../data/blank-disk-1M.raw"]]), [];
+        [["disk_has_backing_file"; "../../test-data/blank-disks/blank-disk-1M.raw"]]), [];
       InitEmpty, Always, TestResultFalse (
-        [["disk_has_backing_file"; "../data/blank-disk-1M.qcow2"]]), [];
+        [["disk_has_backing_file"; "../../test-data/blank-disks/blank-disk-1M.qcow2"]]), [];
       InitEmpty, Always, TestResultTrue (
-        [["disk_has_backing_file"; "../data/blank-disk-with-backing.qcow2"]]), [];
+        [["disk_has_backing_file"; "../../test-data/blank-disks/blank-disk-with-backing.qcow2"]]), [];
     ];
     shortdesc = "return whether disk has a backing file";
     longdesc = "\
@@ -3411,6 +3417,92 @@ C<guestfs_get_identifier>." };
     shortdesc = "get the handle identifier";
     longdesc = "\
 Get the handle identifier.  See C<guestfs_set_identifier>." };
+
+  { defaults with
+    name = "available"; added = (1, 0, 80);
+    style = RErr, [StringList "groups"], [];
+    tests = [
+      InitNone, Always, TestRun [["available"; ""]], []
+    ];
+    shortdesc = "test availability of some parts of the API";
+    longdesc = "\
+This command is used to check the availability of some
+groups of functionality in the appliance, which not all builds of
+the libguestfs appliance will be able to provide.
+
+The libguestfs groups, and the functions that those
+groups correspond to, are listed in L<guestfs(3)/AVAILABILITY>.
+You can also fetch this list at runtime by calling
+C<guestfs_available_all_groups>.
+
+The argument C<groups> is a list of group names, eg:
+C<[\"inotify\", \"augeas\"]> would check for the availability of
+the Linux inotify functions and Augeas (configuration file
+editing) functions.
+
+The command returns no error if I<all> requested groups are available.
+
+It fails with an error if one or more of the requested
+groups is unavailable in the appliance.
+
+If an unknown group name is included in the
+list of groups then an error is always returned.
+
+I<Notes:>
+
+=over 4
+
+=item *
+
+C<guestfs_feature_available> is the same as this call, but
+with a slightly simpler to use API: that call returns a boolean
+true/false instead of throwing an error.
+
+=item *
+
+You must call C<guestfs_launch> before calling this function.
+
+The reason is because we don't know what groups are
+supported by the appliance/daemon until it is running and can
+be queried.
+
+=item *
+
+If a group of functions is available, this does not necessarily
+mean that they will work.  You still have to check for errors
+when calling individual API functions even if they are
+available.
+
+=item *
+
+It is usually the job of distro packagers to build
+complete functionality into the libguestfs appliance.
+Upstream libguestfs, if built from source with all
+requirements satisfied, will support everything.
+
+=item *
+
+This call was added in version C<1.0.80>.  In previous
+versions of libguestfs all you could do would be to speculatively
+execute a command to find out if the daemon implemented it.
+See also C<guestfs_version>.
+
+=back
+
+See also C<guestfs_filesystem_available>." };
+
+  { defaults with
+    name = "feature_available"; added = (1, 21, 26);
+    style = RBool "isavailable", [StringList "groups"], [];
+    tests = [
+      InitNone, Always, TestResultTrue [["feature_available"; ""]], []
+    ];
+    shortdesc = "test availability of some parts of the API";
+    longdesc = "\
+This is the same as C<guestfs_available>, but unlike that
+call it returns a simple true/false boolean result, instead
+of throwing an exception if a feature is not found.  For
+other documentation see C<guestfs_available>." };
 
 ]
 
@@ -4671,7 +4763,8 @@ C<blocksize> option of C<guestfs_mkfs>." };
     proc_nr = Some 62;
     tests = [
       InitEmpty, Always, TestResult (
-        [["blockdev_getsz"; "/dev/sda"]], "ret == 1024000"), []
+        [["blockdev_getsz"; "/dev/sda"]],
+          "ret == INT64_C(2)*1024*1024*1024/512"), []
     ];
     shortdesc = "get total size of device in 512-byte sectors";
     longdesc = "\
@@ -4690,7 +4783,8 @@ This uses the L<blockdev(8)> command." };
     proc_nr = Some 63;
     tests = [
       InitEmpty, Always, TestResult (
-        [["blockdev_getsize64"; "/dev/sda"]], "ret == UINT64_C (524288000)"), []
+        [["blockdev_getsize64"; "/dev/sda"]],
+          "ret == INT64_C(2)*1024*1024*1024"), []
     ];
     shortdesc = "get total size of device in bytes";
     longdesc = "\
@@ -4856,15 +4950,15 @@ To get the checksums for many files, use C<guestfs_checksums_out>." };
     tests = [
       InitScratchFS, Always, TestResultString (
         [["mkdir"; "/tar_in"];
-         ["tar_in"; "$srcdir/../data/helloworld.tar"; "/tar_in"; "NOARG"; ""; ""; ""];
+         ["tar_in"; "$srcdir/../../test-data/files/helloworld.tar"; "/tar_in"; "NOARG"; ""; ""; ""];
          ["cat"; "/tar_in/hello"]], "hello\n"), [];
       InitScratchFS, Always, TestResultString (
         [["mkdir"; "/tar_in_gz"];
-         ["tar_in"; "$srcdir/../data/helloworld.tar.gz"; "/tar_in_gz"; "gzip"; ""; ""; ""];
+         ["tar_in"; "$srcdir/../../test-data/files/helloworld.tar.gz"; "/tar_in_gz"; "gzip"; ""; ""; ""];
          ["cat"; "/tar_in_gz/hello"]], "hello\n"), [];
       InitScratchFS, IfAvailable "xz", TestResultString (
         [["mkdir"; "/tar_in_xz"];
-         ["tar_in"; "$srcdir/../data/helloworld.tar.xz"; "/tar_in_xz"; "xz"; ""; ""; ""];
+         ["tar_in"; "$srcdir/../../test-data/files/helloworld.tar.xz"; "/tar_in_xz"; "xz"; ""; ""; ""];
          ["cat"; "/tar_in_xz/hello"]], "hello\n"), []
     ];
     shortdesc = "unpack tarfile to directory";
@@ -4951,7 +5045,7 @@ If set to true, POSIX ACLs are saved in the output tar.
     tests = [
       InitScratchFS, Always, TestResultString (
         [["mkdir"; "/tgz_in"];
-         ["tgz_in"; "$srcdir/../data/helloworld.tar.gz"; "/tgz_in"];
+         ["tgz_in"; "$srcdir/../../test-data/files/helloworld.tar.gz"; "/tgz_in"];
          ["cat"; "/tgz_in/hello"]], "hello\n"), []
     ];
     shortdesc = "unpack compressed tarball to directory";
@@ -5213,14 +5307,13 @@ of a filesystem." };
     style = RString "uuid", [Device "device"], [];
     proc_nr = Some 83;
     deprecated_by = Some "vfs_uuid";
-    tests =
-      (* Regression test for RHBZ#597112. *)
-      (let uuid = uuidgen () in [
-        InitNone, Always, TestResultString (
-          [["mke2journal"; "1024"; "/dev/sdc"];
-           ["set_e2uuid"; "/dev/sdc"; uuid];
-           ["get_e2uuid"; "/dev/sdc"]], uuid), []
-      ]);
+    tests = [
+      (* We can't predict what UUID will be, so just check
+         the command run; regression test for RHBZ#597112. *)
+      InitNone, Always, TestRun (
+        [["mke2journal"; "1024"; "/dev/sdc"];
+         ["get_e2uuid"; "/dev/sdc"]]), []
+    ];
     shortdesc = "get the ext2/3/4 filesystem UUID";
     longdesc = "\
 This returns the ext2/3/4 filesystem UUID of the filesystem on
@@ -7182,7 +7275,7 @@ per libguestfs instance." };
       InitScratchFS, Always, TestResult (
         [["mkdir"; "/inotify_add_watch"];
          ["inotify_init"; "0"];
-         ["inotify_add_watch"; "/inotify_add_watch"; "1073741823"];
+         ["inotify_add_watch"; "/inotify_add_watch"; "4095"];
          ["touch"; "/inotify_add_watch/a"];
          ["touch"; "/inotify_add_watch/b"];
          ["inotify_files"]],
@@ -7287,13 +7380,16 @@ and C<guestfs_setcon>" };
          ["write"; "/new"; "new file contents"];
          ["cat"; "/new"]], "new file contents"), [];
       InitEmpty, Always, TestRun (
-        [["part_disk"; "/dev/sda"; "mbr"];
+        [["part_init"; "/dev/sda"; "mbr"];
+         ["part_add"; "/dev/sda"; "p"; "64"; "204799"];
          ["mkfs_b"; "vfat"; "32768"; "/dev/sda1"]]), [];
       InitEmpty, Always, TestLastFail (
-        [["part_disk"; "/dev/sda"; "mbr"];
+        [["part_init"; "/dev/sda"; "mbr"];
+         ["part_add"; "/dev/sda"; "p"; "64"; "204799"];
          ["mkfs_b"; "vfat"; "32769"; "/dev/sda1"]]), [];
       InitEmpty, Always, TestLastFail (
-        [["part_disk"; "/dev/sda"; "mbr"];
+        [["part_init"; "/dev/sda"; "mbr"];
+         ["part_add"; "/dev/sda"; "p"; "64"; "204799"];
          ["mkfs_b"; "vfat"; "33280"; "/dev/sda1"]]), [];
       InitEmpty, IfAvailable "ntfsprogs", TestRun (
         [["part_disk"; "/dev/sda"; "mbr"];
@@ -7703,7 +7799,7 @@ yourself (Augeas support makes this relatively easy)." };
 
   { defaults with
     name = "internal_lxattrlist"; added = (1, 19, 32);
-    style = RStructList ("xattrs", "xattr"), [Pathname "path"; StringList "names"], [];
+    style = RStructList ("xattrs", "xattr"), [Pathname "path"; FilenameList "names"], [];
     proc_nr = Some 205;
     visibility = VInternal;
     optional = Some "linuxxattrs";
@@ -7733,7 +7829,7 @@ into smaller groups of names." };
 
   { defaults with
     name = "internal_readlinklist"; added = (1, 19, 32);
-    style = RStringList "links", [Pathname "path"; StringList "names"], [];
+    style = RStringList "links", [Pathname "path"; FilenameList "names"], [];
     proc_nr = Some 206;
     visibility = VInternal;
     shortdesc = "readlink on multiple files";
@@ -8031,80 +8127,6 @@ To create a file with a pattern of repeating bytes
 use C<guestfs_fill_pattern>." };
 
   { defaults with
-    name = "available"; added = (1, 0, 80);
-    style = RErr, [StringList "groups"], [];
-    proc_nr = Some 216;
-    tests = [
-      InitNone, Always, TestRun [["available"; ""]], []
-    ];
-    shortdesc = "test availability of some parts of the API";
-    longdesc = "\
-This command is used to check the availability of some
-groups of functionality in the appliance, which not all builds of
-the libguestfs appliance will be able to provide.
-
-The libguestfs groups, and the functions that those
-groups correspond to, are listed in L<guestfs(3)/AVAILABILITY>.
-You can also fetch this list at runtime by calling
-C<guestfs_available_all_groups>.
-
-The argument C<groups> is a list of group names, eg:
-C<[\"inotify\", \"augeas\"]> would check for the availability of
-the Linux inotify functions and Augeas (configuration file
-editing) functions.
-
-The command returns no error if I<all> requested groups are available.
-
-It fails with an error if one or more of the requested
-groups is unavailable in the appliance.
-
-If an unknown group name is included in the
-list of groups then an error is always returned.
-
-I<Notes:>
-
-=over 4
-
-=item *
-
-C<guestfs_feature_available> is the same as this call, but
-with a slightly simpler to use API: that call returns a boolean
-true/false instead of throwing an error.
-
-=item *
-
-You must call C<guestfs_launch> before calling this function.
-
-The reason is because we don't know what groups are
-supported by the appliance/daemon until it is running and can
-be queried.
-
-=item *
-
-If a group of functions is available, this does not necessarily
-mean that they will work.  You still have to check for errors
-when calling individual API functions even if they are
-available.
-
-=item *
-
-It is usually the job of distro packagers to build
-complete functionality into the libguestfs appliance.
-Upstream libguestfs, if built from source with all
-requirements satisfied, will support everything.
-
-=item *
-
-This call was added in version C<1.0.80>.  In previous
-versions of libguestfs all you could do would be to speculatively
-execute a command to find out if the daemon implemented it.
-See also C<guestfs_version>.
-
-=back
-
-See also C<guestfs_filesystem_available>." };
-
-  { defaults with
     name = "dd"; added = (1, 0, 80);
     style = RErr, [Dev_or_Path "src"; Dev_or_Path "dest"], [];
     proc_nr = Some 217;
@@ -8303,7 +8325,7 @@ or growing unnecessarily." };
     tests = [
       InitScratchFS, Always, TestResultString (
         [["mkdir"; "/txz_in"];
-         ["txz_in"; "$srcdir/../data/helloworld.tar.xz"; "/txz_in"];
+         ["txz_in"; "$srcdir/../../test-data/files/helloworld.tar.xz"; "/txz_in"];
          ["cat"; "/txz_in/hello"]], "hello\n"), []
     ];
     shortdesc = "unpack compressed tarball to directory";
@@ -8415,7 +8437,7 @@ types (see C<guestfs_part_get_parttype>)." };
     tests = [
       InitISOFS, Always, TestResult (
         [["checksum_device"; "md5"; "/dev/sdd"]],
-        "check_file_md5 (ret, \"../data/test.iso\") == 0"), []
+        "check_file_md5 (ret, \"../../test-data/test.iso\") == 0"), []
     ];
     shortdesc = "compute MD5, SHAx or CRC checksum of the contents of a device";
     longdesc = "\
@@ -8489,7 +8511,7 @@ to find out what it is for." };
     cancellable = true;
     tests = [
       InitScratchFS, Always, TestResultString (
-        [["base64_in"; "../data/hello.b64"; "/base64_in"];
+        [["base64_in"; "../../test-data/files/hello.b64"; "/base64_in"];
          ["cat"; "/base64_in"]], "hello\n"), []
     ];
     shortdesc = "upload base64-encoded data to file";
@@ -9834,7 +9856,7 @@ device is stopped, but it is not destroyed or zeroed." };
           "check_hash (ret, \"PART_ENTRY_NUMBER\", \"1\") == 0 && "^
           "check_hash (ret, \"PART_ENTRY_TYPE\", \"0x83\") == 0 && "^
           "check_hash (ret, \"PART_ENTRY_OFFSET\", \"128\") == 0 && "^
-          "check_hash (ret, \"PART_ENTRY_SIZE\", \"1023745\") == 0"), [];
+          "check_hash (ret, \"PART_ENTRY_SIZE\", \"4194049\") == 0"), [];
     ];
     shortdesc = "print block device attributes";
     longdesc = "\
@@ -10196,7 +10218,7 @@ replacement
     tests = [
       InitEmpty, Always, TestRun (
         [["part_disk"; "/dev/sda"; "mbr"];
-         ["mkfs_btrfs"; "/dev/sda1"; "0"; "268435456"; "single"; "4096"; "test"; "single"; "4096"; "512"]]), []
+         ["mkfs_btrfs"; "/dev/sda1"; "0"; "268435456"; "single"; ""; "test"; "single"; "65536"; "512"]]), []
     ];
     shortdesc = "create a btrfs filesystem";
     longdesc = "\
@@ -10910,12 +10932,12 @@ with zeroes)." };
         InitEmpty, Always, TestResultString (
           [["part_disk"; "/dev/sda"; "mbr"];
            ["mkfs"; "xfs"; "/dev/sda1"; ""; "NOARG"; ""; ""; "NOARG"];
-           ["xfs_admin"; "/dev/sda1"; ""; ""; ""; ""; "false"; "NOARG"; uuid];
+           ["xfs_admin"; "/dev/sda1"; ""; ""; ""; ""; ""; "NOARG"; uuid];
            ["vfs_uuid"; "/dev/sda1"]], uuid), [];
         InitEmpty, Always, TestResultString (
           [["part_disk"; "/dev/sda"; "mbr"];
            ["mkfs"; "xfs"; "/dev/sda1"; ""; "NOARG"; ""; ""; "NOARG"];
-           ["xfs_admin"; "/dev/sda1"; ""; ""; ""; ""; "false"; "LBL-TEST"; "NOARG"];
+           ["xfs_admin"; "/dev/sda1"; ""; ""; ""; ""; ""; "LBL-TEST"; "NOARG"];
            ["vfs_label"; "/dev/sda1"]], "LBL-TEST"), [];
       ]);
     shortdesc = "change parameters of an XFS filesystem";
@@ -10937,7 +10959,7 @@ C<guestfs_xfs_growfs> calls." };
     optional = Some "hivex";
     tests = [
       InitScratchFS, Always, TestRun (
-        [["upload"; "$srcdir/../data/minimal"; "/hivex_open"];
+        [["upload"; "$srcdir/../../test-data/files/minimal"; "/hivex_open"];
          ["hivex_open"; "/hivex_open"; ""; ""; "false"];
          ["hivex_root"]; (* in this hive, it returns 0x1020 *)
          ["hivex_node_name"; "0x1020"];
@@ -11085,11 +11107,11 @@ See also: C<guestfs_hivex_value_utf8>." };
     optional = Some "hivex";
     tests = [
       InitScratchFS, Always, TestRun (
-        [["upload"; "$srcdir/../data/minimal"; "/hivex_commit1"];
+        [["upload"; "$srcdir/../../test-data/files/minimal"; "/hivex_commit1"];
          ["hivex_open"; "/hivex_commit1"; ""; ""; "true"];
          ["hivex_commit"; "NULL"]]), [["hivex_close"]];
       InitScratchFS, Always, TestResultTrue (
-        [["upload"; "$srcdir/../data/minimal"; "/hivex_commit2"];
+        [["upload"; "$srcdir/../../test-data/files/minimal"; "/hivex_commit2"];
          ["hivex_open"; "/hivex_commit2"; ""; ""; "true"];
          ["hivex_commit"; "/hivex_commit2_copy"];
          ["is_file"; "/hivex_commit2_copy"; "false"]]), [["hivex_close"]]
@@ -11286,6 +11308,18 @@ silently create an ext2 filesystem instead." };
     name = "list_disk_labels"; added = (1, 19, 49);
     style = RHashtable "labels", [], [];
     proc_nr = Some 369;
+    tests = [
+      (* The test disks have no labels, so we can be sure there are
+       * no labels.  See in tests/disk-labels/ for tests checking
+       * for actual disk labels.
+       *
+       * Also, we make use of the assumption that RHashtable is a
+       * char*[] in C, so an empty hash has just a NULL element.
+       *)
+      InitScratchFS, Always, TestResult (
+        [["list_disk_labels"]],
+        "is_string_list (ret, 0)"), [];
+    ];
     shortdesc = "mapping of disk labels to devices";
     longdesc = "\
 If you add drives using the optional C<label> parameter
@@ -11763,20 +11797,6 @@ This is only used to debug RHBZ#914931.  Note that this
 deliberately crashes guestfsd." };
 
   { defaults with
-    name = "feature_available"; added = (1, 21, 26);
-    style = RBool "isavailable", [StringList "groups"], [];
-    proc_nr = Some 398;
-    tests = [
-      InitNone, Always, TestResultTrue [["feature_available"; ""]], []
-    ];
-    shortdesc = "test availability of some parts of the API";
-    longdesc = "\
-This is the same as C<guestfs_available>, but unlike that
-call it returns a simple true/false boolean result, instead
-of throwing an exception if a feature is not found.  For
-other documentation see C<guestfs_available>." };
-
-  { defaults with
     name = "syslinux"; added = (1, 21, 27);
     style = RErr, [Device "device"], [OString "directory"];
     proc_nr = Some 399;
@@ -12220,7 +12240,7 @@ This is the same as the L<lstat(2)> system call." };
 
   { defaults with
     name = "internal_lstatnslist"; added = (1, 27, 53);
-    style = RStructList ("statbufs", "statns"), [Pathname "path"; StringList "names"], [];
+    style = RStructList ("statbufs", "statns"), [Pathname "path"; FilenameList "names"], [];
     proc_nr = Some 423;
     visibility = VInternal;
     shortdesc = "lstat on multiple files";
@@ -12676,8 +12696,8 @@ This enable skinny metadata extent refs." };
     tests = [
       InitEmpty, Always, TestRun (
         [["part_init"; "/dev/sda"; "mbr"];
-         ["part_add"; "/dev/sda"; "p"; "64"; "204799"];
-         ["part_add"; "/dev/sda"; "p"; "204800"; "409599"];
+         ["part_add"; "/dev/sda"; "p"; "64"; "2047999"];
+         ["part_add"; "/dev/sda"; "p"; "2048000"; "4095999"];
          ["mkfs_btrfs"; "/dev/sda1"; ""; ""; "NOARG"; ""; "NOARG"; "NOARG"; ""; ""];
          ["mkfs_btrfs"; "/dev/sda2"; ""; ""; "NOARG"; ""; "NOARG"; "NOARG"; ""; ""];
          ["mount"; "/dev/sda1"; "/"];
@@ -12752,18 +12772,42 @@ Only some filesystem types support setting UUIDs.
 To read the UUID on a filesystem, call C<guestfs_vfs_uuid>." };
 
   { defaults with
-    name = "resize2fs_P"; added = (1, 31, 17);
-    style = RInt64 "sizeinblocks", [Device "device"], [];
+    name = "vfs_minimum_size"; added = (1, 31, 18);
+    style = RInt64 "sizeinbytes", [Mountable "mountable"], [];
     proc_nr = Some 457;
     tests = [
       InitBasicFS, Always, TestRun (
-        [["resize2fs_P"; "/dev/sda1"]]), [];
+        [["vfs_minimum_size"; "/dev/sda1"]]), [];
+      InitPartition, IfAvailable "ntfsprogs", TestRun(
+        [["mkfs"; "ntfs"; "/dev/sda1"; ""; "NOARG"; ""; ""; "NOARG"];
+         ["vfs_minimum_size"; "/dev/sda1"]]), [];
+      InitPartition, IfAvailable "btrfs", TestRunOrUnsupported (
+        [["mkfs"; "btrfs"; "/dev/sda1"; ""; "NOARG"; ""; ""; "NOARG"];
+         ["mount"; "/dev/sda1"; "/"];
+         ["vfs_minimum_size"; "/dev/sda1"]]), [];
+      InitPartition, IfAvailable "xfs", TestRun (
+        [["mkfs"; "xfs"; "/dev/sda1"; ""; "NOARG"; ""; ""; "NOARG"];
+         ["mount"; "/dev/sda1"; "/"];
+         ["vfs_minimum_size"; "/dev/sda1"]]), [];
     ];
-    shortdesc = "get minimum filesystem size in blocks";
+    shortdesc = "get minimum filesystem size";
     longdesc = "\
-Get the estimated minimum filesystem size of an ext2/3/4 filesystem in blocks.
+Get the minimum size of filesystem in bytes.
+This is the minimum possible size for filesystem shrinking.
 
-See also L<resize2fs(8)>." };
+If getting minimum size of specified filesystem is not supported,
+this will fail and set errno as ENOTSUP.
+
+See also L<ntfsresize(8)>, L<resize2fs(8)>, L<btrfs(8)>, L<xfs_info(8)>." };
+
+  { defaults with
+    name = "internal_feature_available"; added = (1, 31, 25);
+    style = RInt "result", [String "group"], [];
+    proc_nr = Some 458;
+    visibility = VInternal;
+    shortdesc = "test availability of some parts of the API";
+    longdesc = "\
+This is the internal call which implements C<guestfs_feature_available>." };
 
 ]
 

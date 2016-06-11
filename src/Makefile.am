@@ -46,7 +46,9 @@ generator_built = \
 	structs-cleanup.c \
 	structs-compare.c \
 	structs-copy.c \
-	structs-free.c
+	structs-free.c \
+	structs-print.c \
+	structs-print.h
 
 BUILT_SOURCES = \
 	$(generator_built) \
@@ -83,6 +85,7 @@ libguestfs_la_SOURCES = \
 	actions-variants.c \
 	alloc.c \
 	appliance.c \
+	available.c \
 	bindtests.c \
 	canonical-name.c \
 	command.c \
@@ -126,6 +129,8 @@ libguestfs_la_SOURCES = \
 	structs-copy.c \
 	structs-free.c \
 	tmpdirs.c \
+	umask.c \
+	wait.c \
 	whole-file.c \
 	libguestfs.syms
 
@@ -225,6 +230,8 @@ endif
 libutils_la_SOURCES = \
 	cleanup.c \
 	structs-cleanup.c \
+	structs-print.c \
+	structs-print.h \
 	utils.c
 libutils_la_CPPFLAGS = $(libguestfs_la_CPPFLAGS)
 libutils_la_CFLAGS = $(libguestfs_la_CFLAGS)
@@ -249,25 +256,26 @@ libvirt_is_version_CFLAGS = \
 endif
 
 # Tests: main tests are in tests/c-api.  Here we just have some
-# internal tests of utility functions.  Note we don't just test what's
-# in utils.c, we can test other functions as well here.
+# internal tests of utility functions.
 
-TESTS_ENVIRONMENT = $(top_builddir)/run --test $(VG)
+TESTS_ENVIRONMENT = $(top_builddir)/run --test
+LOG_COMPILER = $(VG)
 
-TESTS = test-utils
-check_PROGRAMS = test-utils
+TESTS = unit-tests
+check_PROGRAMS = unit-tests
 
-test_utils_SOURCES = test-utils.c
-test_utils_CPPFLAGS = \
+unit_tests_SOURCES = unit-tests.c
+unit_tests_CPPFLAGS = \
 	-I$(top_srcdir)/gnulib/lib -I$(top_builddir)/gnulib/lib \
 	-I$(top_srcdir)/src -I.
-test_utils_CFLAGS = \
+unit_tests_CFLAGS = \
 	$(WARN_CFLAGS) $(WERROR_CFLAGS)
-test_utils_LDADD = \
-	libguestfs_la-guid.lo \
-	libutils.la \
-	$(LTLIBINTL) \
-	$(top_builddir)/gnulib/lib/libgnu.la
+# We have to link this to libguestfs, but because we want to test
+# non-exported functions we have to link with the objects not the
+# library.
+unit_tests_LDADD = \
+	$(libguestfs_la_OBJECTS) \
+	$(libguestfs_la_LIBADD)
 
 check-valgrind:
 	$(MAKE) VG="@VG@" check
@@ -280,9 +288,9 @@ pkgconfig_DATA = libguestfs.pc
 # Manual page.
 
 man_MANS = guestfs.3 libguestfs.3
-noinst_DATA = $(top_builddir)/html/guestfs.3.html
+noinst_DATA = $(top_builddir)/website/guestfs.3.html
 
-guestfs.3 $(top_builddir)/html/guestfs.3.html: stamp-guestfs.pod
+guestfs.3 $(top_builddir)/website/guestfs.3.html: stamp-guestfs.pod
 
 stamp-guestfs.pod: guestfs.pod \
 		guestfs-actions.pod \
@@ -291,7 +299,7 @@ stamp-guestfs.pod: guestfs.pod \
 	$(PODWRAPPER) \
 	  --section 3 \
 	  --man guestfs.3 \
-	  --html $(top_builddir)/html/guestfs.3.html \
+	  --html $(top_builddir)/website/guestfs.3.html \
 	  --insert $(srcdir)/guestfs-actions.pod:__ACTIONS__ \
 	  --insert $(srcdir)/guestfs-availability.pod:__AVAILABILITY__ \
 	  --insert $(srcdir)/guestfs-structs.pod:__STRUCTS__ \

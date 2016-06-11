@@ -364,16 +364,6 @@ static struct drive *
 create_drive_iscsi (guestfs_h *g,
                     const struct drive_create_data *data)
 {
-  if (data->username != NULL) {
-    error (g, _("iscsi: you cannot specify a username with this protocol"));
-    return NULL;
-  }
-
-  if (data->secret != NULL) {
-    error (g, _("iscsi: you cannot specify a secret with this protocol"));
-    return NULL;
-  }
-
   if (data->nr_servers != 1) {
     error (g, _("iscsi: you must specify exactly one server"));
     return NULL;
@@ -412,9 +402,15 @@ create_drive_dev_null (guestfs_h *g,
 {
   CLEANUP_FREE char *tmpfile = NULL;
 
-  if (data->format && STRNEQ (data->format, "raw")) {
-    error (g, _("for device '/dev/null', format must be 'raw'"));
-    return NULL;
+  if (data->format) {
+    if (STRNEQ (data->format, "raw")) {
+      error (g, _("for device '/dev/null', format must be 'raw'"));
+      return NULL;
+    }
+  } else {
+    /* Manual set format=raw for /dev/null drives, if that was not
+     * already manually specified.  */
+    data->format = "raw";
   }
 
   if (guestfs_int_lazy_make_tmpdir (g) == -1)
@@ -524,7 +520,7 @@ add_drive_to_handle_at (guestfs_h *g, struct drive *d, size_t drv_index)
   if (drv_index >= g->nr_drives) {
     g->drives = safe_realloc (g, g->drives,
                               sizeof (struct drive *) * (drv_index + 1));
-    while (g->nr_drives <= drv_index) {
+    while (g->nr_drives < drv_index+1) {
       g->drives[g->nr_drives] = NULL;
       g->nr_drives++;
     }

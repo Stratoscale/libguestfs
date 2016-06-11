@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,6 +16,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+/**
+ * Implementation of the C<direct> backend.
+ *
+ * For more details see L<guestfs(3)/BACKENDS>.
+ */
+
 #include <config.h>
 
 #include <stdio.h>
@@ -26,7 +32,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/types.h>
-#include <sys/wait.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -69,7 +76,6 @@ static void print_qemu_command_line (guestfs_h *g, char **argv);
 static int qemu_supports (guestfs_h *g, struct backend_direct_data *, const char *option);
 static int qemu_supports_device (guestfs_h *g, struct backend_direct_data *, const char *device_name);
 static int qemu_supports_virtio_scsi (guestfs_h *g, struct backend_direct_data *);
-static char *qemu_escape_param (guestfs_h *g, const char *param);
 
 static char *
 create_cow_overlay_direct (guestfs_h *g, void *datav, struct drive *drv)
@@ -384,18 +390,18 @@ launch_direct (guestfs_h *g, void *datav, const char *arg)
   }
 
   ADD_CMDLINE ("-machine");
-  if (!force_tcg)
-    ADD_CMDLINE (
+  ADD_CMDLINE_PRINTF (
 #ifdef MACHINE_TYPE
-                 MACHINE_TYPE ","
+                      MACHINE_TYPE ","
 #endif
-                 "accel=kvm:tcg");
-  else
-    ADD_CMDLINE (
-#ifdef MACHINE_TYPE
-                 MACHINE_TYPE ","
+#ifdef __aarch64__
+                      "%s"      /* gic-version */
 #endif
-                 "accel=tcg");
+                      "accel=%s",
+#ifdef __aarch64__
+                      has_kvm && !force_tcg ? "gic-version=host," : "",
+#endif
+                      !force_tcg ? "kvm:tcg" : "tcg");
 
   cpu_model = guestfs_int_get_cpu_model (has_kvm && !force_tcg);
   if (cpu_model) {
@@ -490,7 +496,7 @@ launch_direct (guestfs_h *g, void *datav, const char *arg)
 
       /* Make the file= parameter. */
       file = guestfs_int_drive_source_qemu_param (g, &drv->src);
-      escaped_file = qemu_escape_param (g, file);
+      escaped_file = guestfs_int_qemu_escape_param (g, file);
 
       /* Make the first part of the -drive parameter, everything up to
        * the if=... at the end.
@@ -510,7 +516,7 @@ launch_direct (guestfs_h *g, void *datav, const char *arg)
     }
     else {
       /* Writable qcow2 overlay on top of read-only drive. */
-      escaped_file = qemu_escape_param (g, drv->overlay);
+      escaped_file = guestfs_int_qemu_escape_param (g, drv->overlay);
       param = safe_asprintf
         (g, "file=%s,cache=unsafe,format=qcow2%s%s,id=hd%zu",
          escaped_file,
@@ -552,7 +558,8 @@ launch_direct (guestfs_h *g, void *datav, const char *arg)
   /* Add the ext2 appliance drive (after all the drives). */
   if (has_appliance_drive) {
     ADD_CMDLINE ("-drive");
-    ADD_CMDLINE_PRINTF ("file=%s,snapshot=on,id=appliance,cache=unsafe,if=none",
+    ADD_CMDLINE_PRINTF ("file=%s,snapshot=on,id=appliance,"
+                        "cache=unsafe,if=none,format=raw",
                         appliance);
 
     if (virtio_scsi) {
@@ -571,19 +578,9 @@ launch_direct (guestfs_h *g, void *datav, const char *arg)
   ADD_CMDLINE ("-device");
   ADD_CMDLINE (VIRTIO_SERIAL);
 
-#if 0
-  /* Use virtio-console (a variant form of virtio-serial) for the
-   * guest's serial console.
-   */
-  ADD_CMDLINE ("-chardev");
-  ADD_CMDLINE ("stdio,id=console");
-  ADD_CMDLINE ("-device");
-  ADD_CMDLINE ("virtconsole,chardev=console,name=org.libguestfs.console.0");
-#else
-  /* When the above works ...  until then: */
+  /* Create the serial console. */
   ADD_CMDLINE ("-serial");
   ADD_CMDLINE ("stdio");
-#endif
 
   if (qemu_supports_device (g, data, "Serial Graphics Adapter")) {
     /* Use sgabios instead of vgabios.  This means we'll see BIOS
@@ -614,8 +611,8 @@ launch_direct (guestfs_h *g, void *datav, const char *arg)
   flags = 0;
   if (!has_kvm || force_tcg)
     flags |= APPLIANCE_COMMAND_LINE_IS_TCG;
-  ADD_CMDLINE_STRING_NODUP (guestfs_int_appliance_command_line (g, appliance_dev,
-								flags));
+  ADD_CMDLINE_STRING_NODUP
+    (guestfs_int_appliance_command_line (g, appliance_dev, flags));
 
   /* Note: custom command line parameters must come last so that
    * qemu -set parameters can modify previously added options.
@@ -718,7 +715,6 @@ launch_direct (guestfs_h *g, void *datav, const char *arg)
   if (g->recovery_proc) {
     r = fork ();
     if (r == 0) {
-      int i;
       struct sigaction sa;
       pid_t qemu_pid = data->pid;
       pid_t parent_pid = getppid ();
@@ -850,8 +846,8 @@ launch_direct (guestfs_h *g, void *datav, const char *arg)
     close (sv[0]);
   if (data->pid > 0) kill (data->pid, 9);
   if (data->recoverypid > 0) kill (data->recoverypid, 9);
-  if (data->pid > 0) waitpid (data->pid, NULL, 0);
-  if (data->recoverypid > 0) waitpid (data->recoverypid, NULL, 0);
+  if (data->pid > 0) guestfs_int_waitpid_noerror (data->pid);
+  if (data->recoverypid > 0) guestfs_int_waitpid_noerror (data->recoverypid);
   data->pid = 0;
   data->recoverypid = 0;
   memset (&g->launch_t, 0, sizeof g->launch_t);
@@ -1150,11 +1146,13 @@ qemu_supports_virtio_scsi (guestfs_h *g, struct backend_direct_data *data)
   return data->virtio_scsi == 1;
 }
 
-/* Escape a qemu parameter.  Every ',' becomes ',,'.  The caller must
- * free the returned string.
+/**
+ * Escape a qemu parameter.
+ *
+ * Every C<,> becomes C<,,>.  The caller must free the returned string.
  */
-static char *
-qemu_escape_param (guestfs_h *g, const char *param)
+char *
+guestfs_int_qemu_escape_param (guestfs_h *g, const char *param)
 {
   size_t i, len = strlen (param);
   char *p, *ret;
@@ -1269,9 +1267,34 @@ guestfs_int_drive_source_qemu_param (guestfs_h *g, const struct drive_source *sr
     return make_uri (g, "https", src->username, src->secret,
                      &src->servers[0], src->u.exportname);
 
-  case drive_protocol_iscsi:
-    return make_uri (g, "iscsi", NULL, NULL,
-                     &src->servers[0], src->u.exportname);
+  case drive_protocol_iscsi: {
+    CLEANUP_FREE char *escaped_hostname = NULL;
+    CLEANUP_FREE char *escaped_target = NULL;
+    CLEANUP_FREE char *userauth = NULL;
+    char port_str[16];
+    char *ret;
+
+    escaped_hostname =
+      (char *) xmlURIEscapeStr(BAD_CAST src->servers[0].u.hostname,
+                               BAD_CAST "");
+    /* The target string must keep slash as it is, as exportname contains
+     * "iqn/lun".
+     */
+    escaped_target =
+      (char *) xmlURIEscapeStr(BAD_CAST src->u.exportname, BAD_CAST "/");
+    if (src->username != NULL && src->secret != NULL)
+      userauth = safe_asprintf (g, "%s%%%s@", src->username, src->secret);
+    if (src->servers[0].port != 0)
+      snprintf (port_str, sizeof port_str, ":%d", src->servers[0].port);
+
+    ret = safe_asprintf (g, "iscsi://%s%s%s/%s",
+                         userauth != NULL ? userauth : "",
+                         escaped_hostname,
+                         src->servers[0].port != 0 ? port_str : "",
+                         escaped_target);
+
+    return ret;
+  }
 
   case drive_protocol_nbd: {
     CLEANUP_FREE char *p = NULL;
@@ -1461,6 +1484,7 @@ shutdown_direct (guestfs_h *g, void *datav, int check_for_errors)
   struct backend_direct_data *data = datav;
   int ret = 0;
   int status;
+  struct rusage rusage;
 
   /* Signal qemu to shutdown cleanly, and kill the recovery process. */
   if (data->pid > 0) {
@@ -1471,16 +1495,19 @@ shutdown_direct (guestfs_h *g, void *datav, int check_for_errors)
 
   /* Wait for subprocess(es) to exit. */
   if (g->recovery_proc /* RHBZ#998482 */ && data->pid > 0) {
-    if (waitpid (data->pid, &status, 0) == -1) {
-      perrorf (g, "waitpid (qemu)");
+    if (guestfs_int_wait4 (g, data->pid, &status, &rusage, "qemu") == -1)
       ret = -1;
-    }
     else if (!WIFEXITED (status) || WEXITSTATUS (status) != 0) {
       guestfs_int_external_command_failed (g, status, g->hv, NULL);
       ret = -1;
     }
+    else
+      /* Print the actual memory usage of qemu, useful for seeing
+       * if techniques like DAX are having any effect.
+       */
+      debug (g, "qemu maxrss %ldK", rusage.ru_maxrss);
   }
-  if (data->recoverypid > 0) waitpid (data->recoverypid, NULL, 0);
+  if (data->recoverypid > 0) guestfs_int_waitpid_noerror (data->recoverypid);
 
   data->pid = data->recoverypid = 0;
 

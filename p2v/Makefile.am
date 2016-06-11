@@ -1,5 +1,5 @@
 # libguestfs virt-p2v
-# Copyright (C) 2009-2015 Red Hat Inc.
+# Copyright (C) 2009-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,21 +19,35 @@ include $(top_srcdir)/subdir-rules.mk
 
 EXTRA_DIST = \
 	HACKING \
+	$(TESTS) $(SLOW_TESTS) \
 	dependencies.m4 \
 	issue \
 	launch-virt-p2v.in \
 	p2v.ks.in \
 	p2v.service \
+	test-virt-p2v-pxe.sshd_config.in \
+	test-virt-p2v-ssh.sh \
 	virt-p2v.pod \
 	virt-p2v-make-disk.in \
 	virt-p2v-make-disk.pod \
 	virt-p2v-make-kickstart.in \
 	virt-p2v-make-kickstart.pod
 
+# Don't clean ssh_host_rsa_key{,.pub} or id_rsa{,.pub} since those
+# consume system entropy to regenerate.
 CLEANFILES = \
+	$(dependencies_files) \
+	stamp-test-virt-p2v-pxe-kernel \
 	stamp-virt-p2v.pod \
 	stamp-virt-p2v-make-disk.pod \
-	stamp-virt-p2v-make-kickstart.pod
+	stamp-virt-p2v-make-kickstart.pod \
+	test-virt-p2v-pxe.img \
+	test-virt-p2v-pxe.vmlinuz \
+	test-virt-p2v-pxe.initramfs \
+	test-virt-p2v-pxe.sshd_config \
+	virt-p2v.1 \
+	virt-p2v-make-disk.1 \
+	virt-p2v-make-kickstart.1
 
 # Although virt-p2v is a regular binary, it is not usually installed
 # in /usr/bin since it only functions when contained in an ISO or PXE
@@ -57,7 +71,8 @@ virt_p2v_SOURCES = \
 	miniexpect.h \
 	p2v.h \
 	ssh.c \
-	utils.c
+	utils.c \
+	whole-file.c
 
 virt_p2v_CPPFLAGS = \
 	-DLOCALEBASEDIR=\""$(datadir)/locale"\" \
@@ -86,7 +101,6 @@ dependencies_files = \
 	dependencies.debian \
 	dependencies.redhat \
 	dependencies.suse
-CLEANFILES += $(dependencies_files)
 
 $(dependencies_files): dependencies.m4
 	define=`echo $@ | $(SED) 's/dependencies.//;y/abcdefghijklmnopqrstuvwxyz/ABCDEFGHIJKLMNOPQRSTUVWXYZ/'`; \
@@ -117,37 +131,40 @@ man_MANS = \
 	virt-p2v-make-kickstart.1
 
 noinst_DATA = \
-	$(top_builddir)/html/virt-p2v.1.html \
-	$(top_builddir)/html/virt-p2v-make-disk.1.html \
-	$(top_builddir)/html/virt-p2v-make-kickstart.1.html
+	$(top_builddir)/website/virt-p2v.1.html \
+	$(top_builddir)/website/virt-p2v-make-disk.1.html \
+	$(top_builddir)/website/virt-p2v-make-kickstart.1.html
 
-virt-p2v.1 $(top_builddir)/html/virt-p2v.1.html: stamp-virt-p2v.pod
+virt-p2v.1 $(top_builddir)/website/virt-p2v.1.html: stamp-virt-p2v.pod
 
 stamp-virt-p2v.pod: virt-p2v.pod
 	$(PODWRAPPER) \
 	  --man virt-p2v.1 \
-	  --html $(top_builddir)/html/virt-p2v.1.html \
+	  --html $(top_builddir)/website/virt-p2v.1.html \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 
-virt-p2v-make-disk.1 $(top_builddir)/html/virt-p2v-make-disk.1.html: stamp-virt-p2v-make-disk.pod
+virt-p2v-make-disk.1 $(top_builddir)/website/virt-p2v-make-disk.1.html: stamp-virt-p2v-make-disk.pod
 
 stamp-virt-p2v-make-disk.pod: virt-p2v-make-disk.pod
 	$(PODWRAPPER) \
 	  --man virt-p2v-make-disk.1 \
-	  --html $(top_builddir)/html/virt-p2v-make-disk.1.html \
+	  --html $(top_builddir)/website/virt-p2v-make-disk.1.html \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 
-virt-p2v-make-kickstart.1 $(top_builddir)/html/virt-p2v-make-kickstart.1.html: stamp-virt-p2v-make-kickstart.pod
+virt-p2v-make-kickstart.1 $(top_builddir)/website/virt-p2v-make-kickstart.1.html: stamp-virt-p2v-make-kickstart.pod
 
 stamp-virt-p2v-make-kickstart.pod: virt-p2v-make-kickstart.pod
 	$(PODWRAPPER) \
 	  --man virt-p2v-make-kickstart.1 \
-	  --html $(top_builddir)/html/virt-p2v-make-kickstart.1.html \
+	  --html $(top_builddir)/website/virt-p2v-make-kickstart.1.html \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 
@@ -160,7 +177,8 @@ TESTS = \
 
 if ENABLE_APPLIANCE
 TESTS += \
-	test-virt-p2v.sh
+	test-virt-p2v.sh \
+	$(SLOW_TESTS)
 endif ENABLE_APPLIANCE
 
 SLOW_TESTS = \
@@ -172,7 +190,7 @@ check-slow: test-virt-p2v-pxe.img \
 	    test-virt-p2v-pxe.ssh_host_rsa_key \
 	    test-virt-p2v-pxe.ssh_host_rsa_key.pub \
 	    test-virt-p2v-pxe.id_rsa test-virt-p2v-pxe.id_rsa.pub
-	$(MAKE) check TESTS="$(SLOW_TESTS)"
+	$(MAKE) check TESTS="$(SLOW_TESTS)" SLOW=1
 
 test-virt-p2v-pxe.img: virt-p2v-make-disk \
 	               virt-p2v \
@@ -219,17 +237,3 @@ stamp-test-virt-p2v-pxe-userkey:
 	rm -f test-virt-p2v-pxe.id_rsa.pub
 	ssh-keygen -t rsa -f test-virt-p2v-pxe.id_rsa -N ''
 	touch $@
-
-# Don't clean ssh_host_rsa_key{,.pub} or id_rsa{,.pub} since those
-# consume system entropy to regenerate.
-CLEANFILES += \
-	stamp-test-virt-p2v-pxe-kernel \
-	test-virt-p2v-pxe.img \
-	test-virt-p2v-pxe.vmlinuz \
-	test-virt-p2v-pxe.initramfs \
-	test-virt-p2v-pxe.sshd_config
-
-EXTRA_DIST += \
-	$(TESTS) $(SLOW_TESTS) \
-	test-virt-p2v-pxe.sshd_config.in \
-	test-virt-p2v-ssh.sh

@@ -232,8 +232,13 @@ main (int argc, char *argv[])
   assert (live == 0);
 
   /* Must be no extra arguments on the command line. */
-  if (optind != argc)
+  if (optind != argc) {
+    fprintf (stderr, _("%s: error: extra argument '%s' on command line.\n"
+             "Make sure to specify the argument for --format "
+             "like '--format=%s'.\n"),
+             guestfs_int_program_name, argv[optind], argv[optind]);
     usage (EXIT_FAILURE);
+  }
 
   CHECK_OPTION_format_consumed;
 
@@ -253,8 +258,11 @@ main (int argc, char *argv[])
   }
 
   /* User must have specified some drives. */
-  if (drvs == NULL)
+  if (drvs == NULL) {
+    fprintf (stderr, _("%s: error: you must specify at least one -a or -d option.\n"),
+             guestfs_int_program_name);
     usage (EXIT_FAILURE);
+  }
 
   /* Add drives, inspect and mount.  Note that inspector is always true,
    * and there is no -m option.
@@ -796,19 +804,22 @@ do_xpath (const char *query)
     if (nodes == NULL)
       break;
 
-    saveCtx = xmlSaveToFd (STDOUT_FILENO, NULL, XML_SAVE_NO_DECL | XML_SAVE_FORMAT);
+    saveCtx = xmlSaveToFd (STDOUT_FILENO, NULL,
+                           XML_SAVE_NO_DECL | XML_SAVE_FORMAT);
     if (saveCtx == NULL) {
-      fprintf (stderr, _("%s: xmlSaveToFd failed\n"), guestfs_int_program_name);
+      fprintf (stderr, _("%s: xmlSaveToFd failed\n"),
+               guestfs_int_program_name);
       exit (EXIT_FAILURE);
     }
 
     for (i = 0; i < (size_t) nodes->nodeNr; ++i) {
       CLEANUP_XMLFREEDOC xmlDocPtr wrdoc = xmlNewDoc (BAD_CAST "1.0");
       if (wrdoc == NULL) {
-        fprintf (stderr, _("%s: xmlNewDoc failed\n"), guestfs_int_program_name);
+        fprintf (stderr, _("%s: xmlNewDoc failed\n"),
+                 guestfs_int_program_name);
         exit (EXIT_FAILURE);
       }
-      wrnode = xmlCopyNode (nodes->nodeTab[i], 1);
+      wrnode = xmlDocCopyNode (nodes->nodeTab[i], wrdoc, 1);
       if (wrnode == NULL) {
         fprintf (stderr, _("%s: xmlCopyNode failed\n"),
                  guestfs_int_program_name);

@@ -1,6 +1,6 @@
 #!/bin/bash -
 # virt-builder
-# Copyright (C) 2013-2015 Red Hat Inc.
+# Copyright (C) 2013-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -73,6 +73,9 @@ popd
 # Rerun dracut for the installed kernel (not the running kernel):
 KERNEL_VERSION=$(rpm -q kernel --qf '%{version}-%{release}.%{arch}\n')
 dracut -f /boot/initramfs-$KERNEL_VERSION.img $KERNEL_VERSION
+
+# Ensure the installation is up-to-date:
+dnf -y --best upgrade
 %end
 EOF
 
@@ -96,5 +99,7 @@ virt-install \
     --location=$tree \
     --nographics \
     --noreboot
+
+DO_RELABEL=1
 
 source $(dirname "$0")/compress.sh $output

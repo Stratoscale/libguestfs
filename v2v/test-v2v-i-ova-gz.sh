@@ -32,7 +32,9 @@ if [ "$(guestfish get-backend)" = "uml" ]; then
     exit 77
 fi
 
-export VIRT_TOOLS_DATA_DIR="$PWD/fake-virt-tools"
+export VIRT_TOOLS_DATA_DIR="$srcdir/../test-data/fake-virt-tools"
+
+. $srcdir/../test-data/guestfs-hashsums.sh
 
 d=test-v2v-i-ova-gz.d
 rm -rf $d
@@ -42,8 +44,8 @@ pushd $d
 
 truncate -s 10k disk1.vmdk
 gzip disk1.vmdk
-sha=`sha1sum disk1.vmdk | awk '{print $1}'`
-echo -e "SHA1(disk1.vmdk)=$sha\r" > disk1.mf
+sha=`do_sha1 disk1.vmdk.gz`
+echo -e "SHA1(disk1.vmdk.gz)=$sha\r" > disk1.mf
 
 tar -cf test.ova ../test-v2v-i-ova-gz.ovf disk1.vmdk.gz disk1.mf
 popd

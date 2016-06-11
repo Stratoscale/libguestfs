@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,8 @@ open Optgroups
 open Actions
 open Structs
 open Events
+
+let generate_header = generate_header ~inputs:["generator/c.ml"]
 
 (* Generate C API. *)
 
@@ -131,7 +133,7 @@ let rec generate_prototype ?(extern = true) ?(static = false)
           pr "const mountable_t *%s" n
         else
           pr "const char *%s" n
-    | StringList n | DeviceList n ->
+    | StringList n | DeviceList n | FilenameList n ->
         next ();
         pr "char *const *%s" n
     | Bool n -> next (); pr "int %s" n
@@ -301,6 +303,12 @@ I<The caller must free the returned buffer after use>.\n\n"
     pr "This function takes a key or passphrase parameter which
 could contain sensitive material.  Read the section
 L</KEYS AND PASSPHRASES> for more information.\n\n";
+  (match f.optional with
+  | None -> ()
+  | Some opt ->
+    pr "This function depends on the feature C<%s>.  See also
+L</guestfs_feature_available>.\n\n" opt
+  );
   (match version_added f with
   | Some version -> pr "(Added in %s)\n\n" version
   | None -> assert false
@@ -1202,6 +1210,130 @@ and generate_client_structs_cleanup () =
 
   ) structs
 
+(* Generate structs-print.c file. *)
+and generate_client_structs_print_c () =
+  generate_header CStyle LGPLv2plus;
+
+  pr "\
+#include <config.h>
+
+#include <inttypes.h>
+
+#include \"c-ctype.h\"
+
+#include \"guestfs.h\"
+#include \"structs-print.h\"
+
+";
+
+  let write_structs =
+    List.iter (
+      fun { s_name = typ; s_cols = cols } ->
+        let needs_i =
+          List.exists (function (_, (FUUID|FBuffer)) -> true | _ -> false) cols in
+
+        pr "void\n";
+        pr "guestfs_int_print_%s_indent (struct guestfs_%s *%s, FILE *dest, const char *linesep, const char *indent)\n"
+          typ typ typ;
+        pr "{\n";
+        if needs_i then (
+          pr "  size_t i;\n";
+          pr "\n"
+        );
+        List.iter (
+          function
+          | name, FString ->
+              pr "  fprintf (dest, \"%%s%s: %%s%%s\", indent, %s->%s, linesep);\n"
+                name typ name
+          | name, FUUID ->
+              pr "  fprintf (dest, \"%%s%s: \", indent);\n" name;
+              pr "  for (i = 0; i < 32; ++i)\n";
+              pr "    fprintf (dest, \"%%c\", %s->%s[i]);\n" typ name;
+              pr "  fprintf (dest, \"%%s\", linesep);\n"
+          | name, FBuffer ->
+              pr "  fprintf (dest, \"%%s%s: \", indent);\n" name;
+              pr "  for (i = 0; i < %s->%s_len; ++i)\n" typ name;
+              pr "    if (c_isprint (%s->%s[i]))\n" typ name;
+              pr "      fprintf (dest, \"%%c\", %s->%s[i]);\n" typ name;
+              pr "    else\n";
+              pr "      fprintf (dest, \"\\\\x%%02x\", (unsigned) %s->%s[i]);\n"
+                 typ name;
+              pr "  fprintf (dest, \"%%s\", linesep);\n"
+          | name, (FUInt64|FBytes) ->
+              pr "  fprintf (dest, \"%%s%s: %%\" PRIu64 \"%%s\", indent, %s->%s, linesep);\n"
+                name typ name
+          | name, FInt64 ->
+              pr "  fprintf (dest, \"%%s%s: %%\" PRIi64 \"%%s\", indent, %s->%s, linesep);\n"
+                name typ name
+          | name, FUInt32 ->
+              pr "  fprintf (dest, \"%%s%s: %%\" PRIu32 \"%%s\", indent, %s->%s, linesep);\n"
+                name typ name
+          | name, FInt32 ->
+              pr "  fprintf (dest, \"%%s%s: %%\" PRIi32 \"%%s\", indent, %s->%s, linesep);\n"
+                name typ name
+          | name, FChar ->
+              pr "  fprintf (dest, \"%%s%s: %%c%%s\", indent, %s->%s, linesep);\n"
+                name typ name
+          | name, FOptPercent ->
+              pr "  if (%s->%s >= 0)\n" typ name;
+              pr "    fprintf (dest, \"%%s%s: %%g %%%%%%s\", indent, (double) %s->%s, linesep);\n"
+                name typ name;
+              pr "  else\n";
+              pr "    fprintf (dest, \"%%s%s: %%s\", indent, linesep);\n" name
+        ) cols;
+        pr "}\n";
+        pr "\n";
+    ) in
+
+  write_structs external_structs;
+
+  pr "\
+#if GUESTFS_PRIVATE
+
+";
+
+  write_structs internal_structs;
+
+  pr "\
+#endif /* End of GUESTFS_PRIVATE. */
+"
+
+(* Generate structs-print.h file. *)
+and generate_client_structs_print_h () =
+  generate_header CStyle LGPLv2plus;
+
+  pr "\
+#ifndef GUESTFS_INTERNAL_STRUCTS_PRINT_H_
+#define GUESTFS_INTERNAL_STRUCTS_PRINT_H_
+
+#include <stdio.h>
+
+";
+
+  let write_structs =
+    List.iter (
+      fun { s_name = name } ->
+        pr "extern void guestfs_int_print_%s_indent (struct guestfs_%s *%s, FILE *dest, const char *linesep, const char *indent);\n"
+          name name name
+    ) in
+
+  write_structs external_structs;
+
+  pr "\
+
+#if GUESTFS_PRIVATE
+
+";
+
+  write_structs internal_structs;
+
+  pr "\
+
+#endif /* End of GUESTFS_PRIVATE. */
+
+#endif /* GUESTFS_INTERNAL_STRUCTS_PRINT_H_ */
+"
+
 (* Generate the client-side dispatch stubs. *)
 and generate_client_actions hash () =
   generate_header CStyle LGPLv2plus;
@@ -1222,13 +1354,14 @@ and generate_client_actions hash () =
 #include \"guestfs-internal-actions.h\"
 #include \"guestfs_protocol.h\"
 #include \"errnostring.h\"
+#include \"structs-print.h\"
 
 ";
 
   (* Generate code for enter events. *)
   let enter_event shortname =
     pr "  guestfs_int_call_callbacks_message (g, GUESTFS_EVENT_ENTER,\n";
-    pr "                                    \"%s\", %d);\n"
+    pr "                                      \"%s\", %d);\n"
       shortname (String.length shortname)
   in
 
@@ -1252,7 +1385,8 @@ and generate_client_actions hash () =
       | DeviceList n
       | Key n
       | Pointer (_, n)
-      | GUID n ->
+      | GUID n
+      | FilenameList n ->
           pr "  if (%s == NULL) {\n" n;
           pr "    error (g, \"%%s: %%s: parameter cannot be NULL\",\n";
           pr "           \"%s\", \"%s\");\n" c_name n;
@@ -1355,6 +1489,23 @@ and generate_client_actions hash () =
           pr "  }\n";
           pr_newline := true
 
+      | FilenameList n ->
+          pr "  {\n";
+          pr "    size_t i;\n";
+          pr "    for (i = 0; %s[i] != NULL; ++i) {\n" n;
+          pr "      if (strchr (%s[i], '/') != NULL) {\n" n;
+          pr "        error (g, \"%%s: %%s: '%%s' is not a file name\",\n";
+          pr "               \"%s\", \"%s\", %s[i]);\n" c_name n n;
+          let errcode =
+            match errcode_of_ret ret with
+            | `CannotReturnError -> assert false
+            | (`ErrorIsMinusOne |`ErrorIsNULL) as e -> e in
+          pr "        return %s;\n" (string_of_errcode errcode);
+          pr "      }\n";
+          pr "    }\n";
+          pr "  }\n";
+          pr_newline := true
+
       (* not applicable *)
       | String _
       | Device _
@@ -1383,7 +1534,7 @@ and generate_client_actions hash () =
 
     let needs_i =
       List.exists (function
-      | StringList _ | DeviceList _ -> true
+      | StringList _ | DeviceList _ | FilenameList _ -> true
       | _ -> false) args ||
       List.exists (function
       | OStringList _ -> true
@@ -1419,7 +1570,8 @@ and generate_client_actions hash () =
           pr "    else\n";
           pr "      fprintf (trace_buffer.fp, \" null\");\n"
       | StringList n
-      | DeviceList n ->			(* string list *)
+      | DeviceList n
+      | FilenameList n ->			(* string list *)
           pr "    fputc (' ', trace_buffer.fp);\n";
           pr "    fputc ('\"', trace_buffer.fp);\n";
           pr "    for (i = 0; %s[i]; ++i) {\n" n;
@@ -1478,7 +1630,7 @@ and generate_client_actions hash () =
 
     let needs_i =
       match ret with
-      | RStringList _ | RHashtable _ -> true
+      | RStringList _ | RHashtable _ | RStructList _ -> true
       | _ -> false in
     if needs_i then (
       pr "%s  size_t i;\n" indent;
@@ -1511,15 +1663,25 @@ and generate_client_actions hash () =
          pr "%s  }\n" indent;
          pr "%s  fputs (\"]\", trace_buffer.fp);\n" indent;
      | RStruct (_, typ) ->
-         (* XXX There is code generated for guestfish for printing
-          * these structures.  We need to make it generally available
-          * for all callers
-          *)
-         pr "%s  fprintf (trace_buffer.fp, \"<struct guestfs_%s *>\");\n"
-           indent typ (* XXX *)
+         pr "%s  fprintf (trace_buffer.fp, \"<struct guestfs_%s = \");\n"
+           indent typ;
+         pr "%s  guestfs_int_print_%s_indent (%s, trace_buffer.fp, \", \", \"\");\n"
+           indent typ rv;
+         pr "%s  fprintf (trace_buffer.fp, \">\");\n" indent
      | RStructList (_, typ) ->
-         pr "%s  fprintf (trace_buffer.fp, \"<struct guestfs_%s_list *>\");\n"
-           indent typ (* XXX *)
+         pr "%s  fprintf (trace_buffer.fp, \"<struct guestfs_%s_list(%%u)\", %s->len);\n"
+           indent typ rv;
+         pr "%s  if (%s->len > 0)\n" indent rv;
+         pr "%s    fprintf (trace_buffer.fp, \" = \");\n" indent;
+         pr "%s  for (i = 0; i < %s->len; ++i) {\n" indent rv;
+         pr "%s    if (i != 0)\n" indent;
+         pr "%s      fprintf (trace_buffer.fp, \" \");\n" indent;
+         pr "%s    fprintf (trace_buffer.fp, \"[%%zu]{\", i);\n" indent;
+         pr "%s    guestfs_int_print_%s_indent (&%s->val[i], trace_buffer.fp, \", \", \"\");\n"
+           indent typ rv;
+         pr "%s    fprintf (trace_buffer.fp, \"}\");\n" indent;
+         pr "%s  }\n" indent;
+         pr "%s  fprintf (trace_buffer.fp, \">\");\n" indent
     );
     pr "%s  guestfs_int_trace_send_line (g, &trace_buffer);\n" indent;
     pr "%s}\n" indent;
@@ -1735,7 +1897,7 @@ and generate_client_actions hash () =
           pr "  args.%s = (char *) %s;\n" n n
         | OptString n ->
           pr "  args.%s = %s ? (char **) &%s : NULL;\n" n n n
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
           pr "  args.%s.%s_val = (char **) %s;\n" n n n;
           pr "  for (args.%s.%s_len = 0; %s[args.%s.%s_len]; args.%s.%s_len++) ;\n" n n n n n n n;
         | Bool n ->

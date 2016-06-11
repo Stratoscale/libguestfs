@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -28,7 +28,9 @@
 #include <sys/wait.h>
 #include <libintl.h>
 
-/* NB: MUST NOT include "guestfs-internal.h" or gnulib headers. */
+#include "ignore-value.h"
+
+/* NB: MUST NOT include "guestfs-internal.h". */
 #include "guestfs.h"
 #include "guestfs-internal-frontend.h"
 
@@ -184,9 +186,7 @@ guestfs_int_split_string (char sep, const char *str)
   return ret;
 }
 
-/* Translate a wait/system exit status into a printable string.  The
- * string must be freed by the caller.
- */
+/* Translate a wait/system exit status into a printable string. */
 char *
 guestfs_int_exit_status_to_string (int status, const char *cmd_name,
 				   char *buffer, size_t buflen)
@@ -313,4 +313,244 @@ guestfs_int_is_true (const char *str)
     return 0;
 
   return -1;
+}
+
+/* See src/appliance.c:guestfs_int_get_uefi. */
+const char *
+guestfs_int_ovmf_i386_firmware[] = {
+  "/usr/share/edk2.git/ovmf-ia32/OVMF_CODE-pure-efi.fd",
+  "/usr/share/edk2.git/ovmf-ia32/OVMF_VARS-pure-efi.fd",
+
+  NULL
+};
+
+const char *
+guestfs_int_ovmf_x86_64_firmware[] = {
+  "/usr/share/OVMF/OVMF_CODE.fd",
+  "/usr/share/OVMF/OVMF_VARS.fd",
+
+  "/usr/share/edk2.git/ovmf-x64/OVMF_CODE-pure-efi.fd",
+  "/usr/share/edk2.git/ovmf-x64/OVMF_VARS-pure-efi.fd",
+
+  "/usr/share/qemu/ovmf-x86_64-code.bin",
+  "/usr/share/qemu/ovmf-x86_64-vars.bin",
+
+  NULL
+};
+
+const char *
+guestfs_int_aavmf_firmware[] = {
+  "/usr/share/AAVMF/AAVMF_CODE.fd",
+  "/usr/share/AAVMF/AAVMF_VARS.fd",
+
+  "/usr/share/edk2.git/aarch64/QEMU_EFI-pflash.raw",
+  "/usr/share/edk2.git/aarch64/vars-template-pflash.raw",
+
+  NULL
+};
+
+#if 0 /* not used yet */
+/**
+ * Hint that we will read or write the file descriptor normally.
+ *
+ * On Linux, this clears the C<FMODE_RANDOM> flag on the file [see
+ * below] and sets the per-file number of readahead pages to equal the
+ * block device readahead setting.
+ *
+ * It's OK to call this on a non-file since we ignore failure as it is
+ * only a hint.
+ */
+void
+guestfs_int_fadvise_normal (int fd)
+{
+#if defined(HAVE_POSIX_FADVISE) && defined(POSIX_FADV_NORMAL)
+  /* It's not clear from the man page, but the 'advice' parameter is
+   * NOT a bitmask.  You can only pass one parameter with each call.
+   */
+  ignore_value (posix_fadvise (fd, 0, 0, POSIX_FADV_NORMAL));
+#endif
+}
+#endif
+
+/**
+ * Hint that we will read or write the file descriptor sequentially.
+ *
+ * On Linux, this clears the C<FMODE_RANDOM> flag on the file [see
+ * below] and sets the per-file number of readahead pages to twice the
+ * block device readahead setting.
+ *
+ * It's OK to call this on a non-file since we ignore failure as it is
+ * only a hint.
+ */
+void
+guestfs_int_fadvise_sequential (int fd)
+{
+#if defined(HAVE_POSIX_FADVISE) && defined(POSIX_FADV_SEQUENTIAL)
+  /* It's not clear from the man page, but the 'advice' parameter is
+   * NOT a bitmask.  You can only pass one parameter with each call.
+   */
+  ignore_value (posix_fadvise (fd, 0, 0, POSIX_FADV_SEQUENTIAL));
+#endif
+}
+
+/**
+ * Hint that we will read or write the file descriptor randomly.
+ *
+ * On Linux, this sets the C<FMODE_RANDOM> flag on the file.  The
+ * effect of this flag is to:
+ *
+ * =over 4
+ *
+ * =item *
+ *
+ * Disable normal sequential file readahead.
+ *
+ * =item *
+ *
+ * If any read of the file is done which misses in the page cache, 2MB
+ * are read into the page cache.  [I think - I'm not sure I totally
+ * understand what this is doing]
+ *
+ * =back
+ *
+ * It's OK to call this on a non-file since we ignore failure as it is
+ * only a hint.
+ */
+void
+guestfs_int_fadvise_random (int fd)
+{
+#if defined(HAVE_POSIX_FADVISE) && defined(POSIX_FADV_RANDOM)
+  /* It's not clear from the man page, but the 'advice' parameter is
+   * NOT a bitmask.  You can only pass one parameter with each call.
+   */
+  ignore_value (posix_fadvise (fd, 0, 0, POSIX_FADV_RANDOM));
+#endif
+}
+
+/**
+ * Hint that we will access the data only once.
+ *
+ * On Linux, this does nothing.
+ *
+ * It's OK to call this on a non-file since we ignore failure as it is
+ * only a hint.
+ */
+void
+guestfs_int_fadvise_noreuse (int fd)
+{
+#if defined(HAVE_POSIX_FADVISE) && defined(POSIX_FADV_NOREUSE)
+  /* It's not clear from the man page, but the 'advice' parameter is
+   * NOT a bitmask.  You can only pass one parameter with each call.
+   */
+  ignore_value (posix_fadvise (fd, 0, 0, POSIX_FADV_NOREUSE));
+#endif
+}
+
+#if 0 /* not used yet */
+/**
+ * Hint that we will not access the data in the near future.
+ *
+ * On Linux, this immediately writes out any dirty pages in the page
+ * cache and then invalidates (drops) all pages associated with this
+ * file from the page cache.  Apparently it does this even if the file
+ * is opened or being used by other processes.  This setting is not
+ * persistent; if you subsequently read the file it will be cached in
+ * the page cache as normal.
+ *
+ * It's OK to call this on a non-file since we ignore failure as it is
+ * only a hint.
+ */
+void
+guestfs_int_fadvise_dontneed (int fd)
+{
+#if defined(HAVE_POSIX_FADVISE) && defined(POSIX_FADV_DONTNEED)
+  /* It's not clear from the man page, but the 'advice' parameter is
+   * NOT a bitmask.  You can only pass one parameter with each call.
+   */
+  ignore_value (posix_fadvise (fd, 0, 0, POSIX_FADV_DONTNEED));
+#endif
+}
+#endif
+
+#if 0 /* not used yet */
+/**
+ * Hint that we will access the data in the near future.
+ *
+ * On Linux, this immediately reads the whole file into the page
+ * cache.  This setting is not persistent; subsequently pages may be
+ * dropped from the page cache as normal.
+ *
+ * It's OK to call this on a non-file since we ignore failure as it is
+ * only a hint.
+ */
+void
+guestfs_int_fadvise_willneed (int fd)
+{
+#if defined(HAVE_POSIX_FADVISE) && defined(POSIX_FADV_WILLNEED)
+  /* It's not clear from the man page, but the 'advice' parameter is
+   * NOT a bitmask.  You can only pass one parameter with each call.
+   */
+  ignore_value (posix_fadvise (fd, 0, 0, POSIX_FADV_WILLNEED));
+#endif
+}
+#endif
+
+/**
+ * Unquote a shell-quoted string.
+ *
+ * Augeas passes strings to us which may be quoted, eg. if they come
+ * from files in F</etc/sysconfig>.  This function can do simple
+ * unquoting of these strings.
+ *
+ * Note this function does not do variable substitution, since that is
+ * impossible without knowing the file context and indeed the
+ * environment under which the shell script is run.  Configuration
+ * files should not use complex quoting.
+ *
+ * C<str> is the input string from Augeas, a string that may be
+ * single- or double-quoted or may not be quoted.  The returned string
+ * is unquoted, and must be freed by the caller.  C<NULL> is returned
+ * on error and C<errno> is set accordingly.
+ *
+ * For information on double-quoting in bash, see
+ * L<https://www.gnu.org/software/bash/manual/html_node/Double-Quotes.html>
+ */
+char *
+guestfs_int_shell_unquote (const char *str)
+{
+  size_t len = strlen (str);
+  char *ret;
+
+  if (len >= 2) {
+    if (str[0] == '\'' && str[len-1] == '\'') {
+                                /* single quoting */
+      ret = strndup (&str[1], len-2);
+      if (ret == NULL)
+        return NULL;
+      return ret;
+    }
+    else if (str[0] == '"' && str[len-1] == '"') {
+                                /* double quoting */
+      size_t i, j;
+
+      ret = malloc (len + 1);   /* strings always get smaller */
+      if (ret == NULL)
+        return NULL;
+
+      for (i = 1, j = 0; i < len-1 /* ignore final quote */; ++i, ++j) {
+        if (i < len-2 /* ignore final char before final quote */ &&
+            str[i] == '\\' &&
+            (str[i+1] == '$' || str[i+1] == '`' || str[i+1] == '"' ||
+             str[i+1] == '\\' || str[i+1] == '\n'))
+          ++i;
+        ret[j] = str[i];
+      }
+
+      ret[j] = '\0';
+
+      return ret;
+    }
+  }
+
+  return strdup (str);
 }

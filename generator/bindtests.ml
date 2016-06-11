@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,8 @@ open Optgroups
 open Actions
 open Structs
 open C
+
+let generate_header = generate_header ~inputs:["generator/bindtests.ml"]
 
 let rec generate_bindtests () =
   generate_header CStyle LGPLv2plus;
@@ -163,7 +165,8 @@ fill_lvm_pv (guestfs_h *g, struct guestfs_lvm_pv *pv, size_t i)
           pr "    fprintf (fp, \"\\n\");\n";
           pr "  }\n";
         | OptString n -> pr "  fprintf (fp, \"%%s\\n\", %s ? %s : \"null\");\n" n n
-        | StringList n | DeviceList n -> pr "  print_strings (g, %s);\n" n
+        | StringList n | DeviceList n | FilenameList n ->
+          pr "  print_strings (g, %s);\n" n
         | Bool n -> pr "  fprintf (fp, \"%%s\\n\", %s ? \"true\" : \"false\");\n" n
         | Int n -> pr "  fprintf (fp, \"%%d\\n\", %s);\n" n
         | Int64 n -> pr "  fprintf (fp, \"%%\" PRIi64 \"\\n\", %s);\n" n

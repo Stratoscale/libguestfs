@@ -22,7 +22,9 @@ EXTRA_DIST = \
 	test-virt-alignment-scan-guests.sh \
 	virt-alignment-scan.pod
 
-CLEANFILES = stamp-virt-alignment-scan.pod
+CLEANFILES = \
+	stamp-virt-alignment-scan.pod \
+	virt-alignment-scan.1
 
 bin_PROGRAMS = virt-alignment-scan
 
@@ -48,7 +50,6 @@ virt_alignment_scan_SOURCES = \
 
 virt_alignment_scan_CPPFLAGS = \
 	-DGUESTFS_WARN_DEPRECATED=1 \
-	-DGUESTFS_PRIVATE=1 \
 	-I$(top_srcdir)/src -I$(top_builddir)/src \
 	-I$(top_srcdir)/df \
 	-I$(top_srcdir)/fish \
@@ -74,15 +75,16 @@ virt_alignment_scan_LDADD = \
 
 # Manual pages and HTML files for the website.
 man_MANS = virt-alignment-scan.1
-noinst_DATA = $(top_builddir)/html/virt-alignment-scan.1.html
+noinst_DATA = $(top_builddir)/website/virt-alignment-scan.1.html
 
-virt-alignment-scan.1 $(top_builddir)/html/virt-alignment-scan.1.html: stamp-virt-alignment-scan.pod
+virt-alignment-scan.1 $(top_builddir)/website/virt-alignment-scan.1.html: stamp-virt-alignment-scan.pod
 
 stamp-virt-alignment-scan.pod: virt-alignment-scan.pod
 	$(PODWRAPPER) \
 	  --man virt-alignment-scan.1 \
-	  --html $(top_builddir)/html/virt-alignment-scan.1.html \
+	  --html $(top_builddir)/website/virt-alignment-scan.1.html \
 	  --license GPLv2+ \
+	  --warning safe \
 	  $<
 	touch $@
 

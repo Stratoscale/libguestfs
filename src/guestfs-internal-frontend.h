@@ -1,5 +1,5 @@
 /* libguestfs
- * Copyright (C) 2013-2015 Red Hat Inc.
+ * Copyright (C) 2013-2016 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -107,6 +107,16 @@ extern int guestfs_int_random_string (char *ret, size_t len);
 extern char *guestfs_int_drive_name (size_t index, char *ret);
 extern ssize_t guestfs_int_drive_index (const char *);
 extern int guestfs_int_is_true (const char *str);
+extern const char *guestfs_int_ovmf_i386_firmware[];
+extern const char *guestfs_int_ovmf_x86_64_firmware[];
+extern const char *guestfs_int_aavmf_firmware[];
+//extern void guestfs_int_fadvise_normal (int fd);
+extern void guestfs_int_fadvise_sequential (int fd);
+extern void guestfs_int_fadvise_random (int fd);
+extern void guestfs_int_fadvise_noreuse (int fd);
+//extern void guestfs_int_fadvise_dontneed (int fd);
+//extern void guestfs_int_fadvise_willneed (int fd);
+extern char *guestfs_int_shell_unquote (const char *str);
 
 /* These functions are used internally by the CLEANUP_* macros.
  * Don't call them directly.

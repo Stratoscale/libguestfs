@@ -1,5 +1,5 @@
 /* Test FUSE.
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -148,7 +148,7 @@ main (int argc, char *argv[])
     ignore_value (chdir ("/"));
 
     /* Who's using the mountpoint?  Should be no one. */
-    snprintf (cmd, sizeof cmd, "/sbin/fuser %s", mountpoint);
+    snprintf (cmd, sizeof cmd, "%s %s", FUSER, mountpoint);
     printf ("%s\n", cmd);
     fflush (stdout);
     ignore_value (system (cmd));

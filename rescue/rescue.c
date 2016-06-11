@@ -57,7 +57,7 @@ usage (int status)
              guestfs_int_program_name);
   else {
     printf (_("%s: Run a rescue shell on a virtual machine\n"
-              "Copyright (C) 2009-2015 Red Hat Inc.\n"
+              "Copyright (C) 2009-2016 Red Hat Inc.\n"
               "Usage:\n"
               "  %s [--options] -d domname\n"
               "  %s [--options] -a disk.img [-a disk.img ...]\n"
@@ -295,14 +295,22 @@ main (int argc, char *argv[])
   assert (live == 0);
 
   /* Must be no extra arguments on the command line. */
-  if (optind != argc)
+  if (optind != argc) {
+    fprintf (stderr, _("%s: error: extra argument '%s' on command line.\n"
+             "Make sure to specify the argument for --format or --scratch "
+             "like '--format=%s'.\n"),
+             guestfs_int_program_name, argv[optind], argv[optind]);
     usage (EXIT_FAILURE);
+  }
 
   CHECK_OPTION_format_consumed;
 
   /* User must have specified some drives. */
-  if (drvs == NULL)
+  if (drvs == NULL) {
+    fprintf (stderr, _("%s: error: you must specify at least one -a or -d option.\n"),
+             guestfs_int_program_name);
     usage (EXIT_FAILURE);
+  }
 
   /* Setting "direct mode" is required for the rescue appliance. */
   if (guestfs_set_direct (g, 1) == -1)

@@ -577,10 +577,12 @@ Subsecond handling in virt-diff, virt-ls
 Handle nanoseconds properly.  You should be able to specify them on
 the command line and display them.
 
-virt-p2v
---------
+Use QMP to query qemu features
+------------------------------
 
-virt-p2v-make-disk and virt-p2v-make-kickstart should have
-options to let you inject SSH identities, eg:
+The following command will dump out the QMP schema.  With a lot of
+work, this can be used to more accurately parse out various qemu
+features that currently we get by looking at the -help text.
 
-  virt-p2v-make-disk [...] --inject-ssh-identity=id_rsa
+echo -e '{ "execute": "qmp_capabilities" }\n\n{ "execute": "query-qmp-schema" }\n\n{ "execute": "quit" }' | \
+  qemu-system-x86_64 -display none -M none -S -qmp-pretty stdio

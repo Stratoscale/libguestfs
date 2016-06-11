@@ -36,20 +36,20 @@ fi
 abs_builddir="$(pwd)"
 libvirt_uri="test://$abs_builddir/test-v2v-cdrom.xml"
 
-f=../tests/guests/windows.img
+f=../test-data/phony-guests/windows.img
 if ! test -f $f || ! test -s $f; then
     echo "$0: test skipped because phony Windows image was not created"
     exit 77
 fi
 
-f=../tests/guests/blank-disk.img
+f=../test-data/phony-guests/blank-disk.img
 if ! test -f $f || ! test -s $f; then
     echo "$0: test skipped because blank-disk.img was not created"
     exit 77
 fi
 
-export VIRT_TOOLS_DATA_DIR="$PWD/fake-virt-tools"
-export VIRTIO_WIN="$PWD/fake-virtio-win"
+export VIRT_TOOLS_DATA_DIR="$srcdir/../test-data/fake-virt-tools"
+export VIRTIO_WIN="$srcdir/../test-data/fake-virtio-win"
 
 d=test-v2v-cdrom.d
 rm -rf $d

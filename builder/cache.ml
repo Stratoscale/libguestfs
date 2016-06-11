@@ -1,5 +1,5 @@
 (* virt-builder
- * Copyright (C) 2013-2015 Red Hat Inc.
+ * Copyright (C) 2013-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,8 +25,8 @@ open Unix
 open Printf
 
 let clean_cachedir dir =
-  let cmd = sprintf "rm -rf %s" (quote dir) in
-  ignore (Sys.command cmd);
+  let cmd = [ "rm"; "-rf"; dir ] in
+  ignore (run_command cmd);
 
 type t = {
   directory : string;

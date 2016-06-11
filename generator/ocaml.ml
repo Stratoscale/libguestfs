@@ -1,5 +1,5 @@
 (* libguestfs
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,8 @@ open Actions
 open Structs
 open C
 open Events
+
+let generate_header = generate_header ~inputs:["generator/ocaml.ml"]
 
 (* List of errnos to expose on Guestfs.Errno. *)
 let ocaml_errnos = [
@@ -175,6 +177,13 @@ end
       else
         pr "%s(** alias for {!%s}" indent f.name;
 
+      (match f.optional with
+      | None -> ()
+      | Some opt ->
+          has_tags := true;
+          pr "\n\n    This function depends on the feature \"%s\".  See also {!feature_available}."
+            opt
+      );
       (match f.deprecated_by with
        | None -> ()
        | Some replacement ->
@@ -294,8 +303,8 @@ exception Error of string
 exception Handle_closed of string
 
 external create : ?environment:bool -> ?close_on_exit:bool -> unit -> t =
-  \"ocaml_guestfs_create\"
-external close : t -> unit = \"ocaml_guestfs_close\"
+  \"guestfs_int_ocaml_create\"
+external close : t -> unit = \"guestfs_int_ocaml_close\"
 
 type event =
 ";
@@ -321,20 +330,20 @@ type event_handle = int
 type event_callback = event -> event_handle -> string -> int64 array -> unit
 
 external set_event_callback : t -> event_callback -> event list -> event_handle
-  = \"ocaml_guestfs_set_event_callback\"
+  = \"guestfs_int_ocaml_set_event_callback\"
 external delete_event_callback : t -> event_handle -> unit
-  = \"ocaml_guestfs_delete_event_callback\"
+  = \"guestfs_int_ocaml_delete_event_callback\"
 external event_to_string : event list -> string
-  = \"ocaml_guestfs_event_to_string\"
+  = \"guestfs_int_ocaml_event_to_string\"
 
-external last_errno : t -> int = \"ocaml_guestfs_last_errno\"
+external last_errno : t -> int = \"guestfs_int_ocaml_last_errno\"
 
 module Errno = struct
 ";
   List.iter (
     fun e ->
       let le = String.lowercase e in
-      pr "  external %s : unit -> int = \"ocaml_guestfs_get_%s\" \"noalloc\"\n"
+      pr "  external %s : unit -> int = \"guestfs_int_ocaml_get_%s\" \"noalloc\"\n"
         le e;
       pr "  let errno_%s = %s ()\n" e le
   ) ocaml_errnos;
@@ -343,8 +352,8 @@ end
 
 (* Give the exceptions names, so they can be raised from the C code. *)
 let () =
-  Callback.register_exception \"ocaml_guestfs_error\" (Error \"\");
-  Callback.register_exception \"ocaml_guestfs_closed\" (Handle_closed \"\")
+  Callback.register_exception \"guestfs_int_ocaml_error\" (Error \"\");
+  Callback.register_exception \"guestfs_int_ocaml_closed\" (Handle_closed \"\")
 
 ";
 
@@ -541,12 +550,12 @@ copy_table (char * const * argv)
         match ret with RConstOptString _ -> true | _ -> false in
 
       pr "/* Emit prototype to appease gcc's -Wmissing-prototypes. */\n";
-      pr "value ocaml_guestfs_%s (value %s" name (List.hd params);
+      pr "value guestfs_int_ocaml_%s (value %s" name (List.hd params);
       List.iter (pr ", value %s") (List.tl params); pr ");\n";
       pr "\n";
 
       pr "value\n";
-      pr "ocaml_guestfs_%s (value %s" name (List.hd params);
+      pr "guestfs_int_ocaml_%s (value %s" name (List.hd params);
       List.iter (pr ", value %s") (List.tl params);
       pr ")\n";
       pr "{\n";
@@ -579,7 +588,7 @@ copy_table (char * const * argv)
 
       pr "  guestfs_h *g = Guestfs_val (gv);\n";
       pr "  if (g == NULL)\n";
-      pr "    ocaml_guestfs_raise_closed (\"%s\");\n" name;
+      pr "    guestfs_int_ocaml_raise_closed (\"%s\");\n" name;
       pr "\n";
 
       List.iter (
@@ -600,8 +609,8 @@ copy_table (char * const * argv)
         | BufferIn n ->
             pr "  size_t %s_size = caml_string_length (%sv);\n" n n;
             pr "  char *%s = guestfs_int_safe_memdup (g, String_val (%sv), %s_size);\n" n n n
-        | StringList n | DeviceList n ->
-            pr "  char **%s = ocaml_guestfs_strings_val (g, %sv);\n" n n
+        | StringList n | DeviceList n | FilenameList n ->
+            pr "  char **%s = guestfs_int_ocaml_strings_val (g, %sv);\n" n n
         | Bool n ->
             pr "  int %s = Bool_val (%sv);\n" n n
         | Int n ->
@@ -630,7 +639,7 @@ copy_table (char * const * argv)
              | OString _ ->
                  pr "guestfs_int_safe_strdup (g, String_val (Field (%sv, 0)))" n
              | OStringList n ->
-                 pr "ocaml_guestfs_strings_val (g, Field (%sv, 0))\n" n
+                 pr "guestfs_int_ocaml_strings_val (g, Field (%sv, 0))\n" n
             );
             pr ";\n";
             pr "  }\n";
@@ -677,7 +686,7 @@ copy_table (char * const * argv)
         | OptString n | FileIn n | FileOut n | BufferIn n
         | Key n | GUID n ->
             pr "  free (%s);\n" n
-        | StringList n | DeviceList n ->
+        | StringList n | DeviceList n | FilenameList n ->
             pr "  guestfs_int_free_string_list (%s);\n" n;
         | Bool _ | Int _ | Int64 _ | Pointer _ -> ()
       ) args;
@@ -696,10 +705,10 @@ copy_table (char * const * argv)
        | `CannotReturnError -> ()
        | `ErrorIsMinusOne ->
            pr "  if (r == -1)\n";
-           pr "    ocaml_guestfs_raise_error (g, \"%s\");\n" name;
+           pr "    guestfs_int_ocaml_raise_error (g, \"%s\");\n" name;
        | `ErrorIsNULL ->
            pr "  if (r == NULL)\n";
-           pr "    ocaml_guestfs_raise_error (g, \"%s\");\n" name;
+           pr "    guestfs_int_ocaml_raise_error (g, \"%s\");\n" name;
       );
       pr "\n";
 
@@ -747,13 +756,13 @@ copy_table (char * const * argv)
 
       if List.length params > 5 then (
         pr "/* Emit prototype to appease gcc's -Wmissing-prototypes. */\n";
-        pr "value ocaml_guestfs_%s_byte (value *argv, int argn);\n" name;
+        pr "value guestfs_int_ocaml_%s_byte (value *argv, int argn);\n" name;
         pr "\n";
         pr "value\n";
-        pr "ocaml_guestfs_%s_byte (value *argv, int argn ATTRIBUTE_UNUSED)\n"
+        pr "guestfs_int_ocaml_%s_byte (value *argv, int argn ATTRIBUTE_UNUSED)\n"
           name;
         pr "{\n";
-        pr "  return ocaml_guestfs_%s (argv[0]" name;
+        pr "  return guestfs_int_ocaml_%s (argv[0]" name;
         iteri (fun i _ -> pr ", argv[%d]" (i+1)) (List.tl params);
         pr ");\n";
         pr "}\n";
@@ -787,7 +796,7 @@ and generate_ocaml_c_errnos () =
 ";
   List.iter (
     fun e ->
-      pr "value ocaml_guestfs_get_%s (value unitv);\n" e
+      pr "value guestfs_int_ocaml_get_%s (value unitv);\n" e
   ) ocaml_errnos;
 
   List.iter (
@@ -796,7 +805,7 @@ and generate_ocaml_c_errnos () =
 
 /* NB: \"noalloc\" function. */
 value
-ocaml_guestfs_get_%s (value unitv)
+guestfs_int_ocaml_get_%s (value unitv)
 {
   return Val_int (%s);
 }
@@ -829,8 +838,8 @@ and generate_ocaml_prototype ?(is_external = false) name style =
     pr " = ";
     let _, args, optargs = style in
     if List.length args + List.length optargs + 1 > 5 then
-      pr "\"ocaml_guestfs_%s_byte\" " name;
-    pr "\"ocaml_guestfs_%s\"" name
+      pr "\"guestfs_int_ocaml_%s_byte\" " name;
+    pr "\"guestfs_int_ocaml_%s\"" name
   );
   pr "\n"
 
@@ -850,7 +859,8 @@ and generate_ocaml_function_type ?(extra_unit = false) (ret, args, optargs) =
     | FileIn _ | FileOut _ | BufferIn _ | Key _
     | GUID _ -> pr "string -> "
     | OptString _ -> pr "string option -> "
-    | StringList _ | DeviceList _ -> pr "string array -> "
+    | StringList _ | DeviceList _ | FilenameList _ ->
+        pr "string array -> "
     | Bool _ -> pr "bool -> "
     | Int _ -> pr "int -> "
     | Int64 _ | Pointer _ -> pr "int64 -> "

@@ -1,5 +1,5 @@
 (* virt-v2v
- * Copyright (C) 2011-2015 Red Hat Inc.
+ * Copyright (C) 2011-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -747,7 +747,7 @@ let test_virtio_iso_path_matches_guest_os ctx =
              let msg = sprintf "path %s should not match %s"
                                path win.i_product_name in
              assert_equal ~printer ~msg false
-               (Utils.virtio_iso_path_matches_guest_os path win)
+               (Windows_virtio.UNIT_TESTS.virtio_iso_path_matches_guest_os path win)
          ) all_windows
       | Some correct_windows ->
          List.iter (
@@ -761,9 +761,22 @@ let test_virtio_iso_path_matches_guest_os ctx =
                  sprintf "path %s should not match %s"
                          path win.i_product_name in
              assert_equal ~printer ~msg expected
-               (Utils.virtio_iso_path_matches_guest_os path win)
+               (Windows_virtio.UNIT_TESTS.virtio_iso_path_matches_guest_os path win)
          ) all_windows
   ) paths
+
+let test_shell_unquote ctx =
+  let printer = identity in
+  assert_equal ~printer "a" (Utils.shell_unquote "a");
+  assert_equal ~printer "b" (Utils.shell_unquote "'b'");
+  assert_equal ~printer "c" (Utils.shell_unquote "\"c\"");
+  assert_equal ~printer "dd" (Utils.shell_unquote "\"dd\"");
+  assert_equal ~printer "e\\e" (Utils.shell_unquote "\"e\\\\e\"");
+  assert_equal ~printer "f\\" (Utils.shell_unquote "\"f\\\\\"");
+  assert_equal ~printer "\\g" (Utils.shell_unquote "\"\\\\g\"");
+  assert_equal ~printer "h\\-h" (Utils.shell_unquote "\"h\\-h\"");
+  assert_equal ~printer "i`" (Utils.shell_unquote "\"i\\`\"");
+  assert_equal ~printer "j\"" (Utils.shell_unquote "\"j\\\"\"")
 
 (* Suites declaration. *)
 let suite =
@@ -772,8 +785,9 @@ let suite =
       "OVF.get_ostype" >:: test_get_ostype;
       "Utils.drive_name" >:: test_drive_name;
       "Utils.drive_index" >:: test_drive_index;
-      "Utils.virtio_iso_path_matches_guest_os" >::
+      "Windows_virtio.virtio_iso_path_matches_guest_os" >::
         test_virtio_iso_path_matches_guest_os;
+      "Utils.shell_unquote" >:: test_shell_unquote;
     ]
 
 let () =

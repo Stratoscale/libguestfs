@@ -1,5 +1,5 @@
 /* virt-v2v
- * Copyright (C) 2009-2015 Red Hat Inc.
+ * Copyright (C) 2009-2016 Red Hat Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,6 +45,8 @@
 #pragma GCC diagnostic ignored "-Wmissing-prototypes"
 
 #ifdef HAVE_LIBVIRT
+
+#define ERROR_MESSAGE_LEN 512
 
 static void
 ignore_errors (void *ignore, virErrorPtr ignore2)
@@ -117,7 +119,7 @@ connect_and_load_pool (value connv, value poolnamev)
   /* We have to assemble the error on the stack because a dynamic
    * string couldn't be freed.
    */
-  char errmsg[256];
+  char errmsg[ERROR_MESSAGE_LEN];
   virErrorPtr err;
   virConnectPtr conn;
   virStoragePoolPtr pool;
@@ -157,7 +159,8 @@ connect_and_load_pool (value connv, value poolnamev)
   if (!pool) {
     err = virGetLastError ();
     snprintf (errmsg, sizeof errmsg,
-              _("cannot find libvirt pool '%s': %s"), poolname, err->message);
+              _("cannot find libvirt pool '%s': %s\n\nUse `virsh pool-list --all' to list all available pools, and `virsh pool-dumpxml <pool>' to display details about a particular pool.\n\nTo set the pool which virt-v2v uses, add the `-os <pool>' option."),
+              poolname, err->message);
     virConnectClose (conn);
     caml_invalid_argument (errmsg);
   }
@@ -177,7 +180,7 @@ v2v_dumpxml (value passwordv, value connv, value domnamev)
   /* We have to assemble the error on the stack because a dynamic
    * string couldn't be freed.
    */
-  char errmsg[256];
+  char errmsg[ERROR_MESSAGE_LEN];
   virErrorPtr err;
   virConnectPtr conn;
   virDomainPtr dom;
@@ -278,7 +281,7 @@ v2v_pool_dumpxml (value connv, value poolnamev)
   /* We have to assemble the error on the stack because a dynamic
    * string couldn't be freed.
    */
-  char errmsg[256];
+  char errmsg[ERROR_MESSAGE_LEN];
   virErrorPtr err;
   virConnectPtr conn;
   virStoragePoolPtr pool;
@@ -316,7 +319,7 @@ v2v_vol_dumpxml (value connv, value poolnamev, value volnamev)
   /* We have to assemble the error on the stack because a dynamic
    * string couldn't be freed.
    */
-  char errmsg[256];
+  char errmsg[ERROR_MESSAGE_LEN];
   virErrorPtr err;
   virConnectPtr conn;
   virStoragePoolPtr pool;
@@ -372,7 +375,7 @@ v2v_capabilities (value connv, value unitv)
   /* We have to assemble the error on the stack because a dynamic
    * string couldn't be freed.
    */
-  char errmsg[256];
+  char errmsg[ERROR_MESSAGE_LEN];
   virErrorPtr err;
   virConnectPtr conn;
 
@@ -427,7 +430,7 @@ v2v_domain_exists (value connv, value domnamev)
   /* We have to assemble the error on the stack because a dynamic
    * string couldn't be freed.
    */
-  char errmsg[256];
+  char errmsg[ERROR_MESSAGE_LEN];
   virErrorPtr err;
   virConnectPtr conn;
   virDomainPtr dom;

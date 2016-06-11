@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # libguestfs
-# Copyright (C) 2012-2015 Red Hat Inc.
+# Copyright (C) 2012-2016 Red Hat Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,7 +32,7 @@ unless (exists $INC{"Expect.pm"}) {
 }
 
 # Run virt-rescue and make sure we get to the rescue prompt.
-my $exp = Expect->spawn ("./virt-rescue", "--scratch")
+my $exp = Expect->spawn ("virt-rescue", "--scratch")
     or die "$progname: Expect could not spawn virt-rescue: $!\n";
 
 my $timeout = 5 * 60;
